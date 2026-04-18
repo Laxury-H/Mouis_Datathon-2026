@@ -6,11 +6,11 @@
 % \usepackage{xcolor}
 % \lstset{basicstyle=\ttfamily\small,breaklines=true,frame=single}
 
-\section{Part 2: Truc quan hoa va Phan tich du lieu}
+\section{Part 2: Data Visualization and Business Analysis}
 
-\subsection{Cau chuyen 1: Hieu suat kenh giam dan trong khi return risk gan nhu khong doi}
+\subsection{Story 1: Channel Efficiency Is Declining While Return Risk Stays Flat}
 
-\paragraph{1) Code truc quan hoa (Python)}
+\paragraph{1) Visualization Code (Python)}
 \begin{lstlisting}[language=Python]
 import pandas as pd
 import numpy as np
@@ -100,28 +100,27 @@ plt.tight_layout()
 plt.show()
 \end{lstlisting}
 
-\paragraph{2) Phan tich du lieu (Descriptive, Diagnostic, Predictive, Prescriptive)}
+\paragraph{2) Data Analysis (Descriptive, Diagnostic, Predictive, Prescriptive)}
 \textbf{Descriptive \& Diagnostic.}
-Social media co hieu suat cao nhat: 10.40 don/1,000 sessions; organic search thap hon: 7.39. Return rate giua cac kenh gan nhu tuong duong (3.33\%--3.46\%), cho thay khac biet kinh doanh den tu kha nang chuyen doi traffic thanh don, khong phai tu chat luong don hau mai.
+Social media is the most efficient channel (10.40 orders per 1,000 sessions), while organic search is lower at 7.39. Return rates are nearly flat across channels (3.33\%--3.46\%), so the performance gap is driven by conversion efficiency rather than post-purchase quality.
 
 \textbf{Predictive.}
-He so xu huong theo thang cua conversion efficiency deu am tren tat ca cac kenh, ham y rui ro CAC tang neu giu nguyen media mix hien tai.
+Monthly conversion-efficiency trends are negative across all channels, implying rising CAC under the current media mix.
 
 \textbf{Prescriptive.}
-Dich 100,000 sessions tu kenh kem hieu suat sang kenh tot nhat co the tao them 300.84 don, tuong ung +7.29 trieu doanh thu va +0.71 trieu loi nhuan gop. Trien khai quy tac phan bo ngan sach theo tuan: chi tang ngan sach cho kenh co \textit{orders\_per\_1k\_sessions} > median 4 tuan gan nhat va \textit{return\_rate} khong vuot p75.
+Reallocating 100,000 sessions from the weakest to the strongest channel can generate 300.84 incremental orders, or +7.29 million in net revenue and +0.71 million in gross profit. Weekly spend should be increased only for channels whose \textit{orders\_per\_1k\_sessions} exceed the rolling 4-week median and whose \textit{return\_rate} remains below the 75th percentile.
 
 \paragraph{3) Figure caption (NeurIPS format)}
 \begin{figure}[t]
     \centering
-    % Replace with exported figure path if needed
-    % \includegraphics[width=0.85\linewidth]{Results/figures/story1_channel_matrix.png}
-    \caption{\textbf{Channel quality matrix.} Bubble size indicates net sales by channel. The x-axis reports conversion efficiency (orders per 1,000 sessions), while the y-axis reports return rate. The figure shows substantial dispersion in conversion efficiency with near-flat return rates across channels, implying that budget reallocation should prioritize conversion yield rather than post-purchase quality differences.}
+    \includegraphics[width=0.85\linewidth]{figures/story1_channel_matrix.png}
+    \caption{\textbf{Channel quality matrix.} Bubble size indicates net sales. The x-axis shows conversion efficiency (orders per 1,000 sessions) and the y-axis shows return rate. Conversion efficiency varies substantially across channels, whereas return rates remain nearly flat, suggesting that budget reallocation should prioritize conversion yield.}
     \label{fig:story1_channel_matrix}
 \end{figure}
 
-\subsection{Cau chuyen 2: Khuyen mai qua nguong 10\% dang huy bien loi nhuan}
+\subsection{Story 2: Discounts Above 10\% Are Eroding Margin}
 
-\paragraph{1) Code truc quan hoa (Python)}
+\paragraph{1) Visualization Code (Python)}
 \begin{lstlisting}[language=Python]
 import pandas as pd
 import numpy as np
@@ -199,28 +198,27 @@ plt.tight_layout()
 plt.show()
 \end{lstlisting}
 
-\paragraph{2) Phan tich du lieu (Descriptive, Diagnostic, Predictive, Prescriptive)}
+\paragraph{2) Data Analysis (Descriptive, Diagnostic, Predictive, Prescriptive)}
 \textbf{Descriptive \& Diagnostic.}
-Nhom khong khuyen mai co bien loi nhuan +19.96\%; nhom co khuyen mai la -14.46\%. Theo promo type: \textit{percentage} = -10.25\%, \textit{fixed} = -63.28\%. Theo cuong do giam gia: \(\le 5\%\) van duong (+17.24\%), 5--10\% gan hoa von (+0.87\%), nhung >10\% am manh.
+The non-promotion cohort delivers a +19.96\% gross margin, while the promotion cohort is negative at -14.46\%. By promotion type, \textit{percentage} promos yield -10.25\% and \textit{fixed} promos yield -63.28\%. By discount intensity, margins remain positive at \(\le 5\%\) (+17.24\%), near break-even at 5--10\% (+0.87\%), and sharply negative above 10\%.
 
 \textbf{Predictive.}
-Neu giu co cau deep discount hien tai, bien loi nhuan hop nhat se tiep tuc bi bao mon o cac chu ky campaign cao diem.
+If the current deep-discount mix is preserved, consolidated margin will continue to deteriorate during peak campaigns.
 
 \textbf{Prescriptive.}
-Dat guardrail giam gia: cap mac dinh 10\%; chi cho phep >10\% voi SKU overstock thuoc top quartile \textit{days\_of\_supply}. Mo phong cho thay: neu chuyen 20\% doanh thu dang nam o nhom >10\% sang nhom 5--10\%, loi nhuan gop tang xap xi +96.06 trieu.
+Set an explicit discount guardrail at 10\%, and allow >10\% only for overstock SKUs in the top quartile of \textit{days\_of\_supply}. Policy simulation shows that moving 20\% of revenue from the >10\% band to the 5--10\% band can improve gross profit by approximately +96.06 million.
 
 \paragraph{3) Figure caption (NeurIPS format)}
 \begin{figure}[t]
     \centering
-    % Replace with exported figure path if needed
-    % \includegraphics[width=0.95\linewidth]{Results/figures/story2_discount_margin.png}
-    \caption{\textbf{Promotion profitability diagnostics.} Left panel plots gross margin rate by discount bucket; right panel plots gross margin rate by promotion type. Margin remains positive at low discount intensity but turns negative beyond the 10\% discount threshold, with fixed-amount promotions producing the deepest loss profile. This figure supports introducing discount guardrails and campaign-level margin controls.}
+    \includegraphics[width=0.95\linewidth]{figures/story2_discount_margin.png}
+    \caption{\textbf{Promotion profitability diagnostics.} The left panel shows gross margin rate by discount bucket; the right panel shows gross margin rate by promotion type. Margin remains positive at low discount intensity but turns negative beyond the 10\% threshold, with fixed-amount promotions producing the deepest losses.}
     \label{fig:story2_discount_margin}
 \end{figure}
 
-\subsection{Cau chuyen 3: Ton kho cao + hoan tra cao dang khoa von luu dong}
+\subsection{Story 3: High Overstock and Refund Leakage Are Locking Working Capital}
 
-\paragraph{1) Code truc quan hoa (Python)}
+\paragraph{1) Visualization Code (Python)}
 \begin{lstlisting}[language=Python]
 import pandas as pd
 import numpy as np
@@ -294,24 +292,23 @@ plt.tight_layout()
 plt.show()
 \end{lstlisting}
 
-\paragraph{2) Phan tich du lieu (Descriptive, Diagnostic, Predictive, Prescriptive)}
+\paragraph{2) Data Analysis (Descriptive, Diagnostic, Predictive, Prescriptive)}
 \textbf{Descriptive \& Diagnostic.}
-Streetwear co inventory cost lon nhat (~276.37 trieu), overstock rate 82.65\%, dong thoi refund/gross\_profit = 34.89\%. Casual co refund/gross\_profit cao nhat (41.57\%). GenZ co overstock rate cao nhat (84.09\%), cho thay rui ro khoa von va giam vong quay.
+Streetwear carries the largest inventory cost (\(\sim\)276.37 million), with an overstock rate of 82.65\% and \textit{refund/gross\_profit} of 34.89\%. Casual has the highest refund-to-profit leakage (41.57\%). GenZ has the highest overstock rate (84.09\%), indicating elevated capital lock-in and slower inventory rotation.
 
 \textbf{Predictive.}
-Xu huong overstock he thong dang tang nhe theo thoi gian; neu khong can thiep, von luu dong tiep tuc bi khoa va nang luc tai dau tu suy giam.
+System-level overstock shows a mild upward trend. Without intervention, working-capital lock-in will persist and constrain reinvestment capacity.
 
 \textbf{Prescriptive.}
-Uu tien 2 danh muc Streetwear va GenZ cho chuong trinh giai phong ton kho co guardrail bien loi nhuan. Giam 10\%--15\% gia tri refund cua Streetwear co the tiet kiem 40.67--61.01 trieu. Neu giam 5 diem phan tram ton kho khoa von cua Streetwear, doanh nghiep co the giai phong ~13.82 trieu von hang ton.
+Prioritize Streetwear and GenZ for margin-aware inventory release programs. Reducing Streetwear refund value by 10\%--15\% can save approximately 40.67--61.01 million. Lowering Streetwear locked-overstock exposure by 5 percentage points can release roughly 13.82 million in inventory capital.
 
 \paragraph{3) Figure caption (NeurIPS format)}
 \begin{figure}[t]
     \centering
-    % Replace with exported figure path if needed
-    % \includegraphics[width=0.85\linewidth]{Results/figures/story3_inventory_return_risk.png}
+    \includegraphics[width=0.85\linewidth]{figures/story3_inventory_return_risk.png}
     \caption{\textbf{Inventory-return risk matrix by category.} Bubble size represents inventory cost at the latest snapshot. Categories in the upper-right region combine high overstock rate and high refund-to-gross-profit ratio, signaling simultaneous working-capital lock-in and profitability leakage. The chart identifies priority categories for coordinated pricing, liquidation, and return-mitigation interventions.}
     \label{fig:story3_inventory_return_risk}
 \end{figure}
 
-\subsection{Tong hop cho Ban dieu hanh}
-Ba cau chuyen cho thay huong toi uu khong phai la tang doanh thu bang moi gia, ma la toi uu loi nhuan theo truc \textit{Kenh x Muc giam gia x Vong quay ton kho}. De xuat van hanh control-tower theo tuan voi 5 KPI trong tam: \textit{orders\_per\_1k\_sessions}, \textit{gross\_margin\_rate}, \textit{return\_rate}, \textit{overstock\_rate}, \textit{refund\_to\_gp}.
+\subsection{Executive Synthesis}
+Across the three stories, the objective is not revenue maximization at any cost, but profit optimization along the joint axis of \textit{Channel x Discount Intensity x Inventory Velocity}. We recommend a weekly control tower with five core KPIs: \textit{orders\_per\_1k\_sessions}, \textit{gross\_margin\_rate}, \textit{return\_rate}, \textit{overstock\_rate}, and \textit{refund\_to\_gp}.
