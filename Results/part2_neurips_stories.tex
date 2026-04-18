@@ -1,198 +1,317 @@
-% Part 2 — Datathon 2026 | NeurIPS 2025 LaTeX
-% Required preamble packages: booktabs, amsmath, graphicx
+% Part 2 - Datathon 2026 (LaTeX-ready)
+% Suggested preamble:
+% \usepackage{booktabs}
+% \usepackage{amsmath}
+% \usepackage{listings}
+% \usepackage{xcolor}
+% \lstset{basicstyle=\ttfamily\small,breaklines=true,frame=single}
 
-\section{Exploratory Data Analysis \& Strategic Prescriptions}
+\section{Part 2: Truc quan hoa va Phan tich du lieu}
 
-The following analysis draws on a ten-year transaction record (July 2012–December 2022)
-comprising 646,945 orders, 714,669 line items, 91.5 million web sessions across six
-acquisition channels, and complete inventory snapshots for four product categories.
-Three independent data stories are developed; each traverses all four analytical levels—
-\textit{Descriptive}, \textit{Diagnostic}, \textit{Predictive}, and \textit{Prescriptive}—to
-derive actionable, quantified strategic recommendations.
+\subsection{Cau chuyen 1: Hieu suat kenh giam dan trong khi return risk gan nhu khong doi}
 
-% ──────────────────────────────────────────────────────────────────────────────
-\subsection{Story 1: Deteriorating Conversion Efficiency Across All Channels
-While Return Risk Remains Structurally Flat}
-% ──────────────────────────────────────────────────────────────────────────────
+\paragraph{1) Code truc quan hoa (Python)}
+\begin{lstlisting}[language=Python]
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
 
-\textbf{Descriptive.}
-Cross-joining monthly order counts with monthly web-traffic sessions reveals six-channel
-conversion efficiency (orders per 1,000 sessions) ranging from
-\textbf{social\_media} (10.40) and \textbf{direct} (9.02) at the high end
-to \textbf{organic\_search} (7.39) at the low end—a 41\% spread (Table~\ref{tab:channel}).
-Average order value (AOV) is quasi-uniform at \$24,162–\$24,332, indicating that
-price composition, not channel mix, drives revenue concentration.
-\textbf{organic\_search} nevertheless generates the largest absolute net-sales volume
-(\$4.39B, 28.9\% of total), owing to its dominant order share (181,495 orders, 28.1\%).
-In stark contrast, return rates across all six channels span only 3.33\%–3.46\%,
-a 13\,bp range that is economically negligible.
+sns.set_style("whitegrid")
 
-\textbf{Diagnostic.}
-The near-zero dispersion in return rate eliminates post-purchase quality differences as a
-meaningful channel differentiator.
-The root cause of revenue concentration in a low-efficiency channel
-(\textbf{organic\_search}) is a legacy budget and SEO investment structure that maximises
-reach rather than conversion yield.
-Critically, time-series OLS applied to monthly conversion efficiency reveals
-\textit{uniformly negative trends} across every channel
-(slopes: organic\_search $-0.093$, paid\_search $-0.095$, social\_media $-0.107$,
-email\_campaign $-0.120$, direct $-0.121$, referral $-0.123$ orders/1,000 sessions per month),
-indicating systemic audience saturation and rising customer-acquisition cost (CAC) across
-the entire media portfolio.
+data_dir = Path("./Data") if Path("./Data/orders.csv").exists() else Path("./")
+orders = pd.read_csv(data_dir / "orders.csv", parse_dates=["order_date"])
+web = pd.read_csv(data_dir / "web_traffic.csv", parse_dates=["date"])
+order_items = pd.read_csv(data_dir / "order_items.csv", low_memory=False)
+products = pd.read_csv(data_dir / "products.csv")
+returns = pd.read_csv(data_dir / "returns.csv")
+
+line = (
+    order_items
+    .merge(orders[["order_id", "order_source"]], on="order_id", how="left")
+    .merge(products[["product_id", "cogs"]], on="product_id", how="left")
+)
+line["discount_amount"] = line["discount_amount"].fillna(0)
+line["cogs"] = line["cogs"].fillna(line["unit_price"] * 0.6)
+line["net_sales"] = line["quantity"] * line["unit_price"] - line["discount_amount"]
+line["gross_profit"] = line["net_sales"] - line["quantity"] * line["cogs"]
+
+orders_m = (
+    orders.assign(month=orders["order_date"].dt.to_period("M").dt.to_timestamp())
+    .groupby(["month", "order_source"], as_index=False)
+    .agg(orders=("order_id", "nunique"))
+)
+web_m = (
+    web.assign(month=web["date"].dt.to_period("M").dt.to_timestamp())
+    .groupby(["month", "traffic_source"], as_index=False)
+    .agg(sessions=("sessions", "sum"), bounce=("bounce_rate", "mean"))
+)
+channel = orders_m.merge(
+    web_m,
+    left_on=["month", "order_source"],
+    right_on=["month", "traffic_source"],
+    how="inner"
+)
+channel["orders_per_1k_sessions"] = 1000 * channel["orders"] / channel["sessions"].replace(0, np.nan)
+
+eff = channel.groupby("order_source", as_index=False).agg(
+    conv_eff=("orders_per_1k_sessions", "mean"),
+    bounce=("bounce", "mean")
+)
+
+econ = line.groupby("order_source", as_index=False).agg(
+    net_sales=("net_sales", "sum"),
+    gross_profit=("gross_profit", "sum"),
+    orders=("order_id", "nunique"),
+    sold_qty=("quantity", "sum")
+)
+econ["aov"] = econ["net_sales"] / econ["orders"]
+econ["gp_per_order"] = econ["gross_profit"] / econ["orders"]
+
+ret = (
+    returns.merge(orders[["order_id", "order_source"]], on="order_id", how="left")
+    .groupby("order_source", as_index=False)["return_quantity"].sum()
+)
+
+plot_df = eff.merge(econ, on="order_source", how="left").merge(ret, on="order_source", how="left")
+plot_df["return_quantity"] = plot_df["return_quantity"].fillna(0)
+plot_df["return_rate"] = plot_df["return_quantity"] / plot_df["sold_qty"].replace(0, np.nan)
+
+fig, ax = plt.subplots(figsize=(11, 6))
+sns.scatterplot(
+    data=plot_df,
+    x="conv_eff",
+    y="return_rate",
+    size="net_sales",
+    hue="order_source",
+    sizes=(150, 1000),
+    palette="tab10",
+    ax=ax
+)
+for _, r in plot_df.iterrows():
+    ax.annotate(r["order_source"], (r["conv_eff"], r["return_rate"]), xytext=(5, 5), textcoords="offset points")
+
+ax.set_title("Channel Matrix: Conversion Efficiency vs Return Rate")
+ax.set_xlabel("Orders per 1,000 sessions")
+ax.set_ylabel("Return rate")
+ax.legend(title="Order Source", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
+\paragraph{2) Phan tich du lieu (Descriptive, Diagnostic, Predictive, Prescriptive)}
+\textbf{Descriptive \& Diagnostic.}
+Social media co hieu suat cao nhat: 10.40 don/1,000 sessions; organic search thap hon: 7.39. Return rate giua cac kenh gan nhu tuong duong (3.33\%--3.46\%), cho thay khac biet kinh doanh den tu kha nang chuyen doi traffic thanh don, khong phai tu chat luong don hau mai.
 
 \textbf{Predictive.}
-Extrapolating current decay rates, \textbf{social\_media}—the highest-efficiency
-channel—will converge to the current \textbf{organic\_search} baseline within
-approximately 26 months.
-If media mix is held constant, blended conversion efficiency will fall below 7.0 within
-18 months, implying a CAC escalation of $\sim$15\% and a corresponding gross-profit-per-order
-deterioration of \$30–\$50 at current AOV.
+He so xu huong theo thang cua conversion efficiency deu am tren tat ca cac kenh, ham y rui ro CAC tang neu giu nguyen media mix hien tai.
 
 \textbf{Prescriptive.}
-Because return risk is channel-agnostic, the dominant lever is conversion-yield
-reallocation. \textit{Shifting 100,000 sessions from organic\_search to social\_media
-generates +301 incremental orders, +\$7.29M net revenue, and +\$707K gross profit.}
-We recommend a weekly budget-rebalancing rule: increase channel spend only when the
-trailing 4-week \textit{orders\_per\_1k\_sessions} exceeds the cross-channel median
-\textit{and} the channel's return rate does not exceed the 75th percentile.
-A channel-level gross-margin guardrail (minimum \$2,100 GP per order) should gate
-any new budget increment to prevent volume-driven margin dilution.
+Dich 100,000 sessions tu kenh kem hieu suat sang kenh tot nhat co the tao them 300.84 don, tuong ung +7.29 trieu doanh thu va +0.71 trieu loi nhuan gop. Trien khai quy tac phan bo ngan sach theo tuan: chi tang ngan sach cho kenh co \textit{orders\_per\_1k\_sessions} > median 4 tuan gan nhat va \textit{return\_rate} khong vuot p75.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.80\linewidth]{figures/story1_channel_matrix.png}
-\caption{\textbf{Channel quality matrix: conversion efficiency versus return rate.}
-Each bubble represents one acquisition channel; bubble area is proportional to total
-net sales. The $x$-axis reports mean conversion efficiency (orders per 1,000 sessions)
-and the $y$-axis reports the post-purchase return rate.
-The absence of vertical dispersion (return rates confined to 3.33\%–3.46\%) confirms
-that channel quality differences reside entirely on the acquisition side; budget
-reallocation toward high-conversion channels therefore captures margin upside with
-zero post-purchase quality trade-off.}
-\label{fig:story1_channel_matrix}
+\paragraph{3) Figure caption (NeurIPS format)}
+\begin{figure}[t]
+    \centering
+    % Replace with exported figure path if needed
+    % \includegraphics[width=0.85\linewidth]{Results/figures/story1_channel_matrix.png}
+    \caption{\textbf{Channel quality matrix.} Bubble size indicates net sales by channel. The x-axis reports conversion efficiency (orders per 1,000 sessions), while the y-axis reports return rate. The figure shows substantial dispersion in conversion efficiency with near-flat return rates across channels, implying that budget reallocation should prioritize conversion yield rather than post-purchase quality differences.}
+    \label{fig:story1_channel_matrix}
 \end{figure}
 
-% ──────────────────────────────────────────────────────────────────────────────
-\subsection{Story 2: Promotions Beyond the 10\% Discount Threshold
-Are Systematically Margin-Destructive}
-% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Cau chuyen 2: Khuyen mai qua nguong 10\% dang huy bien loi nhuan}
 
-\textbf{Descriptive.}
-Segmenting 714,669 line items by discount intensity yields four buckets whose gross-margin
-profiles diverge sharply at the 10\% threshold:
-$\leq$5\% discount (+17.24\%), 5–10\% (+0.87\%), 10–20\% ($-$10.85\%), and
-$>$20\% ($-$24.56\%).
-The promo-type lens reinforces this: non-promoted lines carry $+$19.96\% margin, while
-\textit{percentage} promotions erode margin to $-$10.25\% and \textit{fixed}-amount
-promotions destroy $-$63.28\%.
-Across the full catalogue, 38.66\% of order lines carry at least one promotion, implying
-that a substantial share of revenue is generated at a loss.
+\paragraph{1) Code truc quan hoa (Python)}
+\begin{lstlisting}[language=Python]
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
 
-\textbf{Diagnostic.}
-The margin inversion above 10\% discount is a structural artefact of COGS composition:
-the average product margin at list price is $\sim$20\%, so any discount beyond 10 percentage
-points fully extinguishes gross profit before accounting for fulfilment costs.
-Fixed-amount promotions are disproportionately harmful because they scale absolute
-discount independently of unit price, causing the discount-to-revenue ratio to balloon
-on low-ticket SKUs.
-The near-breakeven profile of the 5–10\% bucket (+0.87\%) indicates that this band
-absorbs necessary price sensitivity without materially impairing the P\&L, making it
-the natural guardrail ceiling.
+sns.set_style("whitegrid")
+
+data_dir = Path("./Data") if Path("./Data/order_items.csv").exists() else Path("./")
+order_items = pd.read_csv(data_dir / "order_items.csv", low_memory=False)
+products = pd.read_csv(data_dir / "products.csv")
+promotions = pd.read_csv(data_dir / "promotions.csv")
+inventory = pd.read_csv(data_dir / "inventory.csv", parse_dates=["snapshot_date"])
+
+latest_inv = inventory[inventory["snapshot_date"] == inventory["snapshot_date"].max()][["product_id", "overstock_flag"]]
+
+line = (
+    order_items
+    .merge(products[["product_id", "cogs", "category", "segment"]], on="product_id", how="left")
+    .merge(latest_inv, on="product_id", how="left")
+)
+line["discount_amount"] = line["discount_amount"].fillna(0)
+line["cogs"] = line["cogs"].fillna(line["unit_price"] * 0.6)
+line["overstock_flag"] = line["overstock_flag"].fillna(0)
+
+line["gross_sales"] = line["quantity"] * line["unit_price"]
+line["net_sales"] = line["gross_sales"] - line["discount_amount"]
+line["gross_profit"] = line["net_sales"] - line["quantity"] * line["cogs"]
+line["discount_pct"] = line["discount_amount"] / line["gross_sales"].replace(0, np.nan)
+line["discount_bucket"] = pd.cut(
+    line["discount_pct"].fillna(0),
+    bins=[-0.001, 0.05, 0.10, 0.20, 1.0],
+    labels=["<=5%", "5-10%", "10-20%", ">20%"]
+)
+
+line["promo_id_str"] = line["promo_id"].astype(str).str.strip()
+promotions["promo_id_str"] = promotions["promo_id"].astype(str).str.strip()
+line = line.merge(
+    promotions[["promo_id_str", "promo_type", "promo_channel"]],
+    on="promo_id_str",
+    how="left"
+)
+line["promo_type"] = line["promo_type"].fillna("NoPromo")
+
+bucket_perf = line.groupby("discount_bucket", as_index=False).agg(
+    net_sales=("net_sales", "sum"),
+    gross_profit=("gross_profit", "sum")
+)
+bucket_perf["margin_rate"] = bucket_perf["gross_profit"] / bucket_perf["net_sales"]
+
+promo_perf = line.groupby("promo_type", as_index=False).agg(
+    net_sales=("net_sales", "sum"),
+    gross_profit=("gross_profit", "sum")
+)
+promo_perf["margin_rate"] = promo_perf["gross_profit"] / promo_perf["net_sales"]
+promo_perf = promo_perf.sort_values("net_sales", ascending=False)
+
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+
+sns.barplot(data=bucket_perf, x="discount_bucket", y="margin_rate", palette="Blues_r", ax=axes[0])
+axes[0].axhline(0, color="black", lw=1)
+axes[0].set_title("Margin Rate by Discount Bucket")
+axes[0].set_xlabel("Discount bucket")
+axes[0].set_ylabel("Gross margin rate")
+
+sns.barplot(data=promo_perf, x="promo_type", y="margin_rate", palette="Set2", ax=axes[1])
+axes[1].axhline(0, color="black", lw=1)
+axes[1].set_title("Margin Rate by Promo Type")
+axes[1].set_xlabel("Promo type")
+axes[1].set_ylabel("Gross margin rate")
+axes[1].tick_params(axis="x", rotation=20)
+
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
+\paragraph{2) Phan tich du lieu (Descriptive, Diagnostic, Predictive, Prescriptive)}
+\textbf{Descriptive \& Diagnostic.}
+Nhom khong khuyen mai co bien loi nhuan +19.96\%; nhom co khuyen mai la -14.46\%. Theo promo type: \textit{percentage} = -10.25\%, \textit{fixed} = -63.28\%. Theo cuong do giam gia: \(\le 5\%\) van duong (+17.24\%), 5--10\% gan hoa von (+0.87\%), nhung >10\% am manh.
 
 \textbf{Predictive.}
-If the current promo-mix (38.66\% promotional attachment) is maintained through seasonal
-peak periods, blended gross-margin on promoted revenue will remain approximately
-$-$14.5\%.
-Deep-discount campaigns (fixed-amount or $>$20\% intensity) concentrated in Q4 will
-amplify margin drag and could reduce consolidated gross profit by an estimated
-\$150–\$200M over a two-year horizon under flat revenue assumptions.
+Neu giu co cau deep discount hien tai, bien loi nhuan hop nhat se tiep tuc bi bao mon o cac chu ky campaign cao diem.
 
 \textbf{Prescriptive.}
-Implement a \textit{discount guardrail framework}: (i)~cap the default promotional
-ceiling at 10\%; (ii)~permit exceedance only for SKUs whose \textit{days\_of\_supply}
-places them in the top overstock quartile, limiting deep discounts to genuine
-inventory-clearance use cases; (iii)~deprecate fixed-amount promotion types entirely
-and replace with percentage-based mechanics subject to the 10\% cap.
-\textit{Simulation: redirecting 20\% of revenue currently in the $>$10\% discount
-cohort (\$749.6M) into the 5–10\% bucket would improve gross profit by
-\$96.1M}—a 4.4\% uplift on total gross profit.
+Dat guardrail giam gia: cap mac dinh 10\%; chi cho phep >10\% voi SKU overstock thuoc top quartile \textit{days\_of\_supply}. Mo phong cho thay: neu chuyen 20\% doanh thu dang nam o nhom >10\% sang nhom 5--10\%, loi nhuan gop tang xap xi +96.06 trieu.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.95\linewidth]{figures/story2_discount_margin.png}
-\caption{\textbf{Promotion profitability diagnostics: margin destruction at the 10\%
-discount threshold.}
-The left panel plots gross margin rate by discount-intensity bucket; the right panel
-disaggregates by promotion type.
-Margin remains positive at $\leq$5\% intensity (+17.24\%) and near breakeven at 5–10\%
-(+0.87\%), but turns materially negative beyond 10\% and reaches $-$63.28\% for
-fixed-amount promotions.
-The dashed zero line demarcates value destruction; the figure provides the empirical basis
-for imposing a 10\% discount ceiling and eliminating fixed-amount promotion mechanics.}
-\label{fig:story2_discount_margin}
+\paragraph{3) Figure caption (NeurIPS format)}
+\begin{figure}[t]
+    \centering
+    % Replace with exported figure path if needed
+    % \includegraphics[width=0.95\linewidth]{Results/figures/story2_discount_margin.png}
+    \caption{\textbf{Promotion profitability diagnostics.} Left panel plots gross margin rate by discount bucket; right panel plots gross margin rate by promotion type. Margin remains positive at low discount intensity but turns negative beyond the 10\% discount threshold, with fixed-amount promotions producing the deepest loss profile. This figure supports introducing discount guardrails and campaign-level margin controls.}
+    \label{fig:story2_discount_margin}
 \end{figure}
 
-% ──────────────────────────────────────────────────────────────────────────────
-\subsection{Story 3: Concurrent Overstock and Return Risk Are Locking
-\$387.6M of Working Capital Across All Categories}
-% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Cau chuyen 3: Ton kho cao + hoan tra cao dang khoa von luu dong}
 
-\textbf{Descriptive.}
-The most recent inventory snapshot reveals total on-hand inventory cost of \$387.6M
-distributed across four categories.
-\textbf{Streetwear} dominates with \$276.4M (71.3\% of total), an overstock rate of 82.65\%,
-and an average days-of-supply (DOS) of 2,032 days—more than five years of forward cover.
-\textbf{Outdoor} carries \$88.2M at 78.47\% overstock, while \textbf{Casual} (\$16.0M)
-and \textbf{GenZ} (\$7.1M) exhibit the highest overstock rates in relative terms
-(72.50\% and 84.09\%, respectively).
-Mapping return-induced refund leakage onto gross profit reveals that \textbf{Casual}
-has the highest refund-to-GP ratio (41.57\%), followed by \textbf{Streetwear} (34.89\%)
-and \textbf{Outdoor} (29.48\%).
+\paragraph{1) Code truc quan hoa (Python)}
+\begin{lstlisting}[language=Python]
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
 
-\textbf{Diagnostic.}
-The coexistence of extreme overstock and non-trivial return rates creates a
-\textit{double working-capital trap}: excess inventory immobilises capital that
-cannot be recycled into higher-turn SKUs, while return refunds (\$406.7M for
-Streetwear alone) directly erode the gross profit that would otherwise fund
-markdown-driven clearance.
-The root causes are misaligned demand forecasting—evidenced by DOS exceeding
-2,000 days for Streetwear—and insufficient fit-guidance infrastructure (Q3 confirmed
-\textit{wrong\_size} as the dominant Streetwear return reason), which generates
-avoidable refund outflows.
+sns.set_style("whitegrid")
+
+data_dir = Path("./Data") if Path("./Data/inventory.csv").exists() else Path("./")
+inventory = pd.read_csv(data_dir / "inventory.csv", parse_dates=["snapshot_date"])
+order_items = pd.read_csv(data_dir / "order_items.csv", low_memory=False)
+products = pd.read_csv(data_dir / "products.csv")
+returns = pd.read_csv(data_dir / "returns.csv")
+
+inv_latest = inventory[inventory["snapshot_date"] == inventory["snapshot_date"].max()].copy()
+inv_latest = inv_latest.merge(products[["product_id", "cogs"]], on="product_id", how="left")
+inv_latest["cogs"] = inv_latest["cogs"].fillna(1.0)
+inv_latest["inventory_cost"] = inv_latest["stock_on_hand"] * inv_latest["cogs"]
+
+inv_cat = inv_latest.groupby("category", as_index=False).agg(
+    overstock_rate=("overstock_flag", "mean"),
+    stockout_rate=("stockout_flag", "mean"),
+    avg_dos=("days_of_supply", "mean"),
+    inventory_cost=("inventory_cost", "sum")
+)
+
+line = order_items.merge(products[["product_id", "category", "cogs"]], on="product_id", how="left")
+line["discount_amount"] = line["discount_amount"].fillna(0)
+line["cogs"] = line["cogs"].fillna(line["unit_price"] * 0.6)
+line["net_sales"] = line["quantity"] * line["unit_price"] - line["discount_amount"]
+line["gross_profit"] = line["net_sales"] - line["quantity"] * line["cogs"]
+
+sold_cat = line.groupby("category", as_index=False).agg(
+    sold_qty=("quantity", "sum"),
+    gross_profit=("gross_profit", "sum")
+)
+ret_cat = (
+    returns
+    .merge(products[["product_id", "category"]], on="product_id", how="left")
+    .groupby("category", as_index=False)
+    .agg(return_qty=("return_quantity", "sum"), refund_amount=("refund_amount", "sum"))
+)
+
+risk = sold_cat.merge(ret_cat, on="category", how="left").merge(inv_cat, on="category", how="left")
+risk[["return_qty", "refund_amount", "overstock_rate", "stockout_rate", "avg_dos", "inventory_cost"]] = (
+    risk[["return_qty", "refund_amount", "overstock_rate", "stockout_rate", "avg_dos", "inventory_cost"]].fillna(0)
+)
+risk["return_rate"] = risk["return_qty"] / risk["sold_qty"].replace(0, np.nan)
+risk["refund_to_gp"] = risk["refund_amount"] / risk["gross_profit"].replace(0, np.nan)
+
+fig, ax = plt.subplots(figsize=(11, 6))
+sns.scatterplot(
+    data=risk,
+    x="overstock_rate",
+    y="refund_to_gp",
+    size="inventory_cost",
+    hue="category",
+    sizes=(150, 1200),
+    palette="Set1",
+    ax=ax
+)
+for _, r in risk.iterrows():
+    ax.annotate(r["category"], (r["overstock_rate"], r["refund_to_gp"]), xytext=(5, 5), textcoords="offset points")
+
+ax.set_title("Inventory-Return Risk Matrix by Category")
+ax.set_xlabel("Overstock rate")
+ax.set_ylabel("Refund / Gross profit")
+ax.legend(title="Category", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
+\paragraph{2) Phan tich du lieu (Descriptive, Diagnostic, Predictive, Prescriptive)}
+\textbf{Descriptive \& Diagnostic.}
+Streetwear co inventory cost lon nhat (~276.37 trieu), overstock rate 82.65\%, dong thoi refund/gross\_profit = 34.89\%. Casual co refund/gross\_profit cao nhat (41.57\%). GenZ co overstock rate cao nhat (84.09\%), cho thay rui ro khoa von va giam vong quay.
 
 \textbf{Predictive.}
-If overstock rates continue at the current trajectory without active liquidation,
-Streetwear's locked capital (\$276.4M) will continue to compound carrying costs
-estimated at 15–20\% annually (storage, insurance, opportunity cost).
-Simultaneously, size-driven return rates—structurally linked to the absence of
-predictive sizing recommendations—will sustain Streetwear's refund-to-GP ratio
-above 30\%, creating a self-reinforcing profitability leakage loop as each return
-further delays inventory turnover.
+Xu huong overstock he thong dang tang nhe theo thoi gian; neu khong can thiep, von luu dong tiep tuc bi khoa va nang luc tai dau tu suy giam.
 
 \textbf{Prescriptive.}
-Three coordinated interventions are recommended.
-\textit{First}, execute a margin-guarded Streetwear liquidation programme:
-target a 5\,pp reduction in overstock rate, which would free \$13.8M in working
-capital; apply markdown pricing subject to the 10\% guardrail established in
-Story~2 to avoid compounding the margin destruction documented there.
-\textit{Second}, deploy a ML-powered fit-recommendation engine at checkout for
-Streetwear and Casual: reducing Streetwear's refund amount by 10–15\% would
-save \$40.7M–\$61.0M annually.
-\textit{Third}, institute a category-level control tower with weekly KPI alerts
-on five metrics: \textit{orders\_per\_1k\_sessions}, \textit{gross\_margin\_rate},
-\textit{return\_rate}, \textit{overstock\_rate}, and \textit{refund\_to\_gp},
-enabling pre-emptive course correction before leakage compounds.
+Uu tien 2 danh muc Streetwear va GenZ cho chuong trinh giai phong ton kho co guardrail bien loi nhuan. Giam 10\%--15\% gia tri refund cua Streetwear co the tiet kiem 40.67--61.01 trieu. Neu giam 5 diem phan tram ton kho khoa von cua Streetwear, doanh nghiep co the giai phong ~13.82 trieu von hang ton.
 
-% ──────────────────────────────────────────────────────────────────────────────
-\subsection{Executive Summary}
-% ──────────────────────────────────────────────────────────────────────────────
+\paragraph{3) Figure caption (NeurIPS format)}
+\begin{figure}[t]
+    \centering
+    % Replace with exported figure path if needed
+    % \includegraphics[width=0.85\linewidth]{Results/figures/story3_inventory_return_risk.png}
+    \caption{\textbf{Inventory-return risk matrix by category.} Bubble size represents inventory cost at the latest snapshot. Categories in the upper-right region combine high overstock rate and high refund-to-gross-profit ratio, signaling simultaneous working-capital lock-in and profitability leakage. The chart identifies priority categories for coordinated pricing, liquidation, and return-mitigation interventions.}
+    \label{fig:story3_inventory_return_risk}
+\end{figure}
 
-The three stories converge on a unified strategic prescription: margin optimisation
-must operate simultaneously along the \textbf{Channel $\times$ Discount $\times$
-Inventory-Turnover} axis.
-Channel reallocation (Story~1) lifts revenue quality without additional spend;
-discount guardrails (Story~2) recover \$96.1M gross profit from the existing
-promotional budget; and coordinated overstock liquidation with return-reduction
-interventions (Story~3) unlocks up to \$74.8M in combined cash flow improvement.
-Aggregate addressable upside across the three levers is estimated at
-\textbf{\$170–\$230M}, achievable within a 12-month operational horizon.
+\subsection{Tong hop cho Ban dieu hanh}
+Ba cau chuyen cho thay huong toi uu khong phai la tang doanh thu bang moi gia, ma la toi uu loi nhuan theo truc \textit{Kenh x Muc giam gia x Vong quay ton kho}. De xuat van hanh control-tower theo tuan voi 5 KPI trong tam: \textit{orders\_per\_1k\_sessions}, \textit{gross\_margin\_rate}, \textit{return\_rate}, \textit{overstock\_rate}, \textit{refund\_to\_gp}.
