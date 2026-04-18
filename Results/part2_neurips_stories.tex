@@ -1,0 +1,317 @@
+% Part 2 - Datathon 2026 (LaTeX-ready)
+% Suggested preamble:
+% \usepackage{booktabs}
+% \usepackage{amsmath}
+% \usepackage{listings}
+% \usepackage{xcolor}
+% \lstset{basicstyle=\ttfamily\small,breaklines=true,frame=single}
+
+\section{Part 2: Truc quan hoa va Phan tich du lieu}
+
+\subsection{Cau chuyen 1: Hieu suat kenh giam dan trong khi return risk gan nhu khong doi}
+
+\paragraph{1) Code truc quan hoa (Python)}
+\begin{lstlisting}[language=Python]
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+
+sns.set_style("whitegrid")
+
+data_dir = Path("./Data") if Path("./Data/orders.csv").exists() else Path("./")
+orders = pd.read_csv(data_dir / "orders.csv", parse_dates=["order_date"])
+web = pd.read_csv(data_dir / "web_traffic.csv", parse_dates=["date"])
+order_items = pd.read_csv(data_dir / "order_items.csv", low_memory=False)
+products = pd.read_csv(data_dir / "products.csv")
+returns = pd.read_csv(data_dir / "returns.csv")
+
+line = (
+    order_items
+    .merge(orders[["order_id", "order_source"]], on="order_id", how="left")
+    .merge(products[["product_id", "cogs"]], on="product_id", how="left")
+)
+line["discount_amount"] = line["discount_amount"].fillna(0)
+line["cogs"] = line["cogs"].fillna(line["unit_price"] * 0.6)
+line["net_sales"] = line["quantity"] * line["unit_price"] - line["discount_amount"]
+line["gross_profit"] = line["net_sales"] - line["quantity"] * line["cogs"]
+
+orders_m = (
+    orders.assign(month=orders["order_date"].dt.to_period("M").dt.to_timestamp())
+    .groupby(["month", "order_source"], as_index=False)
+    .agg(orders=("order_id", "nunique"))
+)
+web_m = (
+    web.assign(month=web["date"].dt.to_period("M").dt.to_timestamp())
+    .groupby(["month", "traffic_source"], as_index=False)
+    .agg(sessions=("sessions", "sum"), bounce=("bounce_rate", "mean"))
+)
+channel = orders_m.merge(
+    web_m,
+    left_on=["month", "order_source"],
+    right_on=["month", "traffic_source"],
+    how="inner"
+)
+channel["orders_per_1k_sessions"] = 1000 * channel["orders"] / channel["sessions"].replace(0, np.nan)
+
+eff = channel.groupby("order_source", as_index=False).agg(
+    conv_eff=("orders_per_1k_sessions", "mean"),
+    bounce=("bounce", "mean")
+)
+
+econ = line.groupby("order_source", as_index=False).agg(
+    net_sales=("net_sales", "sum"),
+    gross_profit=("gross_profit", "sum"),
+    orders=("order_id", "nunique"),
+    sold_qty=("quantity", "sum")
+)
+econ["aov"] = econ["net_sales"] / econ["orders"]
+econ["gp_per_order"] = econ["gross_profit"] / econ["orders"]
+
+ret = (
+    returns.merge(orders[["order_id", "order_source"]], on="order_id", how="left")
+    .groupby("order_source", as_index=False)["return_quantity"].sum()
+)
+
+plot_df = eff.merge(econ, on="order_source", how="left").merge(ret, on="order_source", how="left")
+plot_df["return_quantity"] = plot_df["return_quantity"].fillna(0)
+plot_df["return_rate"] = plot_df["return_quantity"] / plot_df["sold_qty"].replace(0, np.nan)
+
+fig, ax = plt.subplots(figsize=(11, 6))
+sns.scatterplot(
+    data=plot_df,
+    x="conv_eff",
+    y="return_rate",
+    size="net_sales",
+    hue="order_source",
+    sizes=(150, 1000),
+    palette="tab10",
+    ax=ax
+)
+for _, r in plot_df.iterrows():
+    ax.annotate(r["order_source"], (r["conv_eff"], r["return_rate"]), xytext=(5, 5), textcoords="offset points")
+
+ax.set_title("Channel Matrix: Conversion Efficiency vs Return Rate")
+ax.set_xlabel("Orders per 1,000 sessions")
+ax.set_ylabel("Return rate")
+ax.legend(title="Order Source", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
+\paragraph{2) Phan tich du lieu (Descriptive, Diagnostic, Predictive, Prescriptive)}
+\textbf{Descriptive \& Diagnostic.}
+Social media co hieu suat cao nhat: 10.40 don/1,000 sessions; organic search thap hon: 7.39. Return rate giua cac kenh gan nhu tuong duong (3.33\%--3.46\%), cho thay khac biet kinh doanh den tu kha nang chuyen doi traffic thanh don, khong phai tu chat luong don hau mai.
+
+\textbf{Predictive.}
+He so xu huong theo thang cua conversion efficiency deu am tren tat ca cac kenh, ham y rui ro CAC tang neu giu nguyen media mix hien tai.
+
+\textbf{Prescriptive.}
+Dich 100,000 sessions tu kenh kem hieu suat sang kenh tot nhat co the tao them 300.84 don, tuong ung +7.29 trieu doanh thu va +0.71 trieu loi nhuan gop. Trien khai quy tac phan bo ngan sach theo tuan: chi tang ngan sach cho kenh co \textit{orders\_per\_1k\_sessions} > median 4 tuan gan nhat va \textit{return\_rate} khong vuot p75.
+
+\paragraph{3) Figure caption (NeurIPS format)}
+\begin{figure}[t]
+    \centering
+    % Replace with exported figure path if needed
+    % \includegraphics[width=0.85\linewidth]{Results/figures/story1_channel_matrix.png}
+    \caption{\textbf{Channel quality matrix.} Bubble size indicates net sales by channel. The x-axis reports conversion efficiency (orders per 1,000 sessions), while the y-axis reports return rate. The figure shows substantial dispersion in conversion efficiency with near-flat return rates across channels, implying that budget reallocation should prioritize conversion yield rather than post-purchase quality differences.}
+    \label{fig:story1_channel_matrix}
+\end{figure}
+
+\subsection{Cau chuyen 2: Khuyen mai qua nguong 10\% dang huy bien loi nhuan}
+
+\paragraph{1) Code truc quan hoa (Python)}
+\begin{lstlisting}[language=Python]
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+
+sns.set_style("whitegrid")
+
+data_dir = Path("./Data") if Path("./Data/order_items.csv").exists() else Path("./")
+order_items = pd.read_csv(data_dir / "order_items.csv", low_memory=False)
+products = pd.read_csv(data_dir / "products.csv")
+promotions = pd.read_csv(data_dir / "promotions.csv")
+inventory = pd.read_csv(data_dir / "inventory.csv", parse_dates=["snapshot_date"])
+
+latest_inv = inventory[inventory["snapshot_date"] == inventory["snapshot_date"].max()][["product_id", "overstock_flag"]]
+
+line = (
+    order_items
+    .merge(products[["product_id", "cogs", "category", "segment"]], on="product_id", how="left")
+    .merge(latest_inv, on="product_id", how="left")
+)
+line["discount_amount"] = line["discount_amount"].fillna(0)
+line["cogs"] = line["cogs"].fillna(line["unit_price"] * 0.6)
+line["overstock_flag"] = line["overstock_flag"].fillna(0)
+
+line["gross_sales"] = line["quantity"] * line["unit_price"]
+line["net_sales"] = line["gross_sales"] - line["discount_amount"]
+line["gross_profit"] = line["net_sales"] - line["quantity"] * line["cogs"]
+line["discount_pct"] = line["discount_amount"] / line["gross_sales"].replace(0, np.nan)
+line["discount_bucket"] = pd.cut(
+    line["discount_pct"].fillna(0),
+    bins=[-0.001, 0.05, 0.10, 0.20, 1.0],
+    labels=["<=5%", "5-10%", "10-20%", ">20%"]
+)
+
+line["promo_id_str"] = line["promo_id"].astype(str).str.strip()
+promotions["promo_id_str"] = promotions["promo_id"].astype(str).str.strip()
+line = line.merge(
+    promotions[["promo_id_str", "promo_type", "promo_channel"]],
+    on="promo_id_str",
+    how="left"
+)
+line["promo_type"] = line["promo_type"].fillna("NoPromo")
+
+bucket_perf = line.groupby("discount_bucket", as_index=False).agg(
+    net_sales=("net_sales", "sum"),
+    gross_profit=("gross_profit", "sum")
+)
+bucket_perf["margin_rate"] = bucket_perf["gross_profit"] / bucket_perf["net_sales"]
+
+promo_perf = line.groupby("promo_type", as_index=False).agg(
+    net_sales=("net_sales", "sum"),
+    gross_profit=("gross_profit", "sum")
+)
+promo_perf["margin_rate"] = promo_perf["gross_profit"] / promo_perf["net_sales"]
+promo_perf = promo_perf.sort_values("net_sales", ascending=False)
+
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+
+sns.barplot(data=bucket_perf, x="discount_bucket", y="margin_rate", palette="Blues_r", ax=axes[0])
+axes[0].axhline(0, color="black", lw=1)
+axes[0].set_title("Margin Rate by Discount Bucket")
+axes[0].set_xlabel("Discount bucket")
+axes[0].set_ylabel("Gross margin rate")
+
+sns.barplot(data=promo_perf, x="promo_type", y="margin_rate", palette="Set2", ax=axes[1])
+axes[1].axhline(0, color="black", lw=1)
+axes[1].set_title("Margin Rate by Promo Type")
+axes[1].set_xlabel("Promo type")
+axes[1].set_ylabel("Gross margin rate")
+axes[1].tick_params(axis="x", rotation=20)
+
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
+\paragraph{2) Phan tich du lieu (Descriptive, Diagnostic, Predictive, Prescriptive)}
+\textbf{Descriptive \& Diagnostic.}
+Nhom khong khuyen mai co bien loi nhuan +19.96\%; nhom co khuyen mai la -14.46\%. Theo promo type: \textit{percentage} = -10.25\%, \textit{fixed} = -63.28\%. Theo cuong do giam gia: \(\le 5\%\) van duong (+17.24\%), 5--10\% gan hoa von (+0.87\%), nhung >10\% am manh.
+
+\textbf{Predictive.}
+Neu giu co cau deep discount hien tai, bien loi nhuan hop nhat se tiep tuc bi bao mon o cac chu ky campaign cao diem.
+
+\textbf{Prescriptive.}
+Dat guardrail giam gia: cap mac dinh 10\%; chi cho phep >10\% voi SKU overstock thuoc top quartile \textit{days\_of\_supply}. Mo phong cho thay: neu chuyen 20\% doanh thu dang nam o nhom >10\% sang nhom 5--10\%, loi nhuan gop tang xap xi +96.06 trieu.
+
+\paragraph{3) Figure caption (NeurIPS format)}
+\begin{figure}[t]
+    \centering
+    % Replace with exported figure path if needed
+    % \includegraphics[width=0.95\linewidth]{Results/figures/story2_discount_margin.png}
+    \caption{\textbf{Promotion profitability diagnostics.} Left panel plots gross margin rate by discount bucket; right panel plots gross margin rate by promotion type. Margin remains positive at low discount intensity but turns negative beyond the 10\% discount threshold, with fixed-amount promotions producing the deepest loss profile. This figure supports introducing discount guardrails and campaign-level margin controls.}
+    \label{fig:story2_discount_margin}
+\end{figure}
+
+\subsection{Cau chuyen 3: Ton kho cao + hoan tra cao dang khoa von luu dong}
+
+\paragraph{1) Code truc quan hoa (Python)}
+\begin{lstlisting}[language=Python]
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+
+sns.set_style("whitegrid")
+
+data_dir = Path("./Data") if Path("./Data/inventory.csv").exists() else Path("./")
+inventory = pd.read_csv(data_dir / "inventory.csv", parse_dates=["snapshot_date"])
+order_items = pd.read_csv(data_dir / "order_items.csv", low_memory=False)
+products = pd.read_csv(data_dir / "products.csv")
+returns = pd.read_csv(data_dir / "returns.csv")
+
+inv_latest = inventory[inventory["snapshot_date"] == inventory["snapshot_date"].max()].copy()
+inv_latest = inv_latest.merge(products[["product_id", "cogs"]], on="product_id", how="left")
+inv_latest["cogs"] = inv_latest["cogs"].fillna(1.0)
+inv_latest["inventory_cost"] = inv_latest["stock_on_hand"] * inv_latest["cogs"]
+
+inv_cat = inv_latest.groupby("category", as_index=False).agg(
+    overstock_rate=("overstock_flag", "mean"),
+    stockout_rate=("stockout_flag", "mean"),
+    avg_dos=("days_of_supply", "mean"),
+    inventory_cost=("inventory_cost", "sum")
+)
+
+line = order_items.merge(products[["product_id", "category", "cogs"]], on="product_id", how="left")
+line["discount_amount"] = line["discount_amount"].fillna(0)
+line["cogs"] = line["cogs"].fillna(line["unit_price"] * 0.6)
+line["net_sales"] = line["quantity"] * line["unit_price"] - line["discount_amount"]
+line["gross_profit"] = line["net_sales"] - line["quantity"] * line["cogs"]
+
+sold_cat = line.groupby("category", as_index=False).agg(
+    sold_qty=("quantity", "sum"),
+    gross_profit=("gross_profit", "sum")
+)
+ret_cat = (
+    returns
+    .merge(products[["product_id", "category"]], on="product_id", how="left")
+    .groupby("category", as_index=False)
+    .agg(return_qty=("return_quantity", "sum"), refund_amount=("refund_amount", "sum"))
+)
+
+risk = sold_cat.merge(ret_cat, on="category", how="left").merge(inv_cat, on="category", how="left")
+risk[["return_qty", "refund_amount", "overstock_rate", "stockout_rate", "avg_dos", "inventory_cost"]] = (
+    risk[["return_qty", "refund_amount", "overstock_rate", "stockout_rate", "avg_dos", "inventory_cost"]].fillna(0)
+)
+risk["return_rate"] = risk["return_qty"] / risk["sold_qty"].replace(0, np.nan)
+risk["refund_to_gp"] = risk["refund_amount"] / risk["gross_profit"].replace(0, np.nan)
+
+fig, ax = plt.subplots(figsize=(11, 6))
+sns.scatterplot(
+    data=risk,
+    x="overstock_rate",
+    y="refund_to_gp",
+    size="inventory_cost",
+    hue="category",
+    sizes=(150, 1200),
+    palette="Set1",
+    ax=ax
+)
+for _, r in risk.iterrows():
+    ax.annotate(r["category"], (r["overstock_rate"], r["refund_to_gp"]), xytext=(5, 5), textcoords="offset points")
+
+ax.set_title("Inventory-Return Risk Matrix by Category")
+ax.set_xlabel("Overstock rate")
+ax.set_ylabel("Refund / Gross profit")
+ax.legend(title="Category", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
+\paragraph{2) Phan tich du lieu (Descriptive, Diagnostic, Predictive, Prescriptive)}
+\textbf{Descriptive \& Diagnostic.}
+Streetwear co inventory cost lon nhat (~276.37 trieu), overstock rate 82.65\%, dong thoi refund/gross\_profit = 34.89\%. Casual co refund/gross\_profit cao nhat (41.57\%). GenZ co overstock rate cao nhat (84.09\%), cho thay rui ro khoa von va giam vong quay.
+
+\textbf{Predictive.}
+Xu huong overstock he thong dang tang nhe theo thoi gian; neu khong can thiep, von luu dong tiep tuc bi khoa va nang luc tai dau tu suy giam.
+
+\textbf{Prescriptive.}
+Uu tien 2 danh muc Streetwear va GenZ cho chuong trinh giai phong ton kho co guardrail bien loi nhuan. Giam 10\%--15\% gia tri refund cua Streetwear co the tiet kiem 40.67--61.01 trieu. Neu giam 5 diem phan tram ton kho khoa von cua Streetwear, doanh nghiep co the giai phong ~13.82 trieu von hang ton.
+
+\paragraph{3) Figure caption (NeurIPS format)}
+\begin{figure}[t]
+    \centering
+    % Replace with exported figure path if needed
+    % \includegraphics[width=0.85\linewidth]{Results/figures/story3_inventory_return_risk.png}
+    \caption{\textbf{Inventory-return risk matrix by category.} Bubble size represents inventory cost at the latest snapshot. Categories in the upper-right region combine high overstock rate and high refund-to-gross-profit ratio, signaling simultaneous working-capital lock-in and profitability leakage. The chart identifies priority categories for coordinated pricing, liquidation, and return-mitigation interventions.}
+    \label{fig:story3_inventory_return_risk}
+\end{figure}
+
+\subsection{Tong hop cho Ban dieu hanh}
+Ba cau chuyen cho thay huong toi uu khong phai la tang doanh thu bang moi gia, ma la toi uu loi nhuan theo truc \textit{Kenh x Muc giam gia x Vong quay ton kho}. De xuat van hanh control-tower theo tuan voi 5 KPI trong tam: \textit{orders\_per\_1k\_sessions}, \textit{gross\_margin\_rate}, \textit{return\_rate}, \textit{overstock\_rate}, \textit{refund\_to\_gp}.
