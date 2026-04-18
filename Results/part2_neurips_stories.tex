@@ -1,198 +1,55 @@
-% Part 2 — Datathon 2026 | NeurIPS 2025 LaTeX
-% Required preamble packages: booktabs, amsmath, graphicx
-
 \section{Exploratory Data Analysis \& Strategic Prescriptions}
 
-The following analysis draws on a ten-year transaction record (July 2012–December 2022)
-comprising 646,945 orders, 714,669 line items, 91.5 million web sessions across six
-acquisition channels, and complete inventory snapshots for four product categories.
-Three independent data stories are developed; each traverses all four analytical levels—
-\textit{Descriptive}, \textit{Diagnostic}, \textit{Predictive}, and \textit{Prescriptive}—to
-derive actionable, quantified strategic recommendations.
+\subsection{Data Story 1: Channel Conversion Efficiency Is Eroding While Return Risk Remains Structurally Flat}
 
-% ──────────────────────────────────────────────────────────────────────────────
-\subsection{Story 1: Deteriorating Conversion Efficiency Across All Channels
-While Return Risk Remains Structurally Flat}
-% ──────────────────────────────────────────────────────────────────────────────
+\textbf{Descriptive.} Joining monthly \textit{web\_traffic} and \textit{orders} shows wide efficiency dispersion: social media leads at 10.40 orders per 1{,}000 sessions, while organic search records 7.39. Post-purchase quality is stable, with return rates tightly bounded between 3.33\% and 3.46\%.
 
-\textbf{Descriptive.}
-Cross-joining monthly order counts with monthly web-traffic sessions reveals six-channel
-conversion efficiency (orders per 1,000 sessions) ranging from
-\textbf{social\_media} (10.40) and \textbf{direct} (9.02) at the high end
-to \textbf{organic\_search} (7.39) at the low end—a 41\% spread (Table~\ref{tab:channel}).
-Average order value (AOV) is quasi-uniform at \$24,162–\$24,332, indicating that
-price composition, not channel mix, drives revenue concentration.
-\textbf{organic\_search} nevertheless generates the largest absolute net-sales volume
-(\$4.39B, 28.9\% of total), owing to its dominant order share (181,495 orders, 28.1\%).
-In stark contrast, return rates across all six channels span only 3.33\%–3.46\%,
-a 13\,bp range that is economically negligible.
+\textbf{Diagnostic.} The gap is a top-of-funnel productivity problem, not a fulfillment-quality problem. High-traffic but low-yield channels (notably organic and email) depress blended media productivity despite high absolute revenue.
 
-\textbf{Diagnostic.}
-The near-zero dispersion in return rate eliminates post-purchase quality differences as a
-meaningful channel differentiator.
-The root cause of revenue concentration in a low-efficiency channel
-(\textbf{organic\_search}) is a legacy budget and SEO investment structure that maximises
-reach rather than conversion yield.
-Critically, time-series OLS applied to monthly conversion efficiency reveals
-\textit{uniformly negative trends} across every channel
-(slopes: organic\_search $-0.093$, paid\_search $-0.095$, social\_media $-0.107$,
-email\_campaign $-0.120$, direct $-0.121$, referral $-0.123$ orders/1,000 sessions per month),
-indicating systemic audience saturation and rising customer-acquisition cost (CAC) across
-the entire media portfolio.
+\textbf{Predictive.} Monthly trend slopes for \textit{orders\_per\_1k\_sessions} are negative in every channel (-0.123 to -0.093), implying rising CAC pressure if the acquisition mix remains unchanged.
 
-\textbf{Predictive.}
-Extrapolating current decay rates, \textbf{social\_media}—the highest-efficiency
-channel—will converge to the current \textbf{organic\_search} baseline within
-approximately 26 months.
-If media mix is held constant, blended conversion efficiency will fall below 7.0 within
-18 months, implying a CAC escalation of $\sim$15\% and a corresponding gross-profit-per-order
-deterioration of \$30–\$50 at current AOV.
-
-\textbf{Prescriptive.}
-Because return risk is channel-agnostic, the dominant lever is conversion-yield
-reallocation. \textit{Shifting 100,000 sessions from organic\_search to social\_media
-generates +301 incremental orders, +\$7.29M net revenue, and +\$707K gross profit.}
-We recommend a weekly budget-rebalancing rule: increase channel spend only when the
-trailing 4-week \textit{orders\_per\_1k\_sessions} exceeds the cross-channel median
-\textit{and} the channel's return rate does not exceed the 75th percentile.
-A channel-level gross-margin guardrail (minimum \$2,100 GP per order) should gate
-any new budget increment to prevent volume-driven margin dilution.
+\textbf{Prescriptive.} Reallocating 100{,}000 sessions from the least efficient to the most efficient channel yields +300.84 incremental orders, about +7.29 million net sales, and +0.71 million gross profit under current unit economics. Implement a weekly allocation rule: scale spend only when trailing 4-week \textit{orders\_per\_1k\_sessions} is above channel median and \textit{return\_rate} is below portfolio p75.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.80\linewidth]{figures/story1_channel_matrix.png}
-\caption{\textbf{Channel quality matrix: conversion efficiency versus return rate.}
-Each bubble represents one acquisition channel; bubble area is proportional to total
-net sales. The $x$-axis reports mean conversion efficiency (orders per 1,000 sessions)
-and the $y$-axis reports the post-purchase return rate.
-The absence of vertical dispersion (return rates confined to 3.33\%–3.46\%) confirms
-that channel quality differences reside entirely on the acquisition side; budget
-reallocation toward high-conversion channels therefore captures margin upside with
-zero post-purchase quality trade-off.}
+\includegraphics[width=0.8\linewidth]{figures/story1_channel_matrix.png}
+\caption{\textbf{Channel Efficiency--Quality Frontier.} Bubble size denotes channel net sales; the x-axis reports conversion efficiency (orders per 1{,}000 sessions) and the y-axis reports return rate. Conversion heterogeneity is large while return risk is nearly flat, supporting short-run growth via traffic reallocation toward high-yield channels rather than quality remediation.}
 \label{fig:story1_channel_matrix}
 \end{figure}
 
-% ──────────────────────────────────────────────────────────────────────────────
-\subsection{Story 2: Promotions Beyond the 10\% Discount Threshold
-Are Systematically Margin-Destructive}
-% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Data Story 2: Discount Intensity Beyond 10\% Systematically Destroys Gross Margin}
 
-\textbf{Descriptive.}
-Segmenting 714,669 line items by discount intensity yields four buckets whose gross-margin
-profiles diverge sharply at the 10\% threshold:
-$\leq$5\% discount (+17.24\%), 5–10\% (+0.87\%), 10–20\% ($-$10.85\%), and
-$>$20\% ($-$24.56\%).
-The promo-type lens reinforces this: non-promoted lines carry $+$19.96\% margin, while
-\textit{percentage} promotions erode margin to $-$10.25\% and \textit{fixed}-amount
-promotions destroy $-$63.28\%.
-Across the full catalogue, 38.66\% of order lines carry at least one promotion, implying
-that a substantial share of revenue is generated at a loss.
+\textbf{Descriptive.} Margin by realized discount bucket is strongly non-linear: $\leq 5\%$ remains positive (+17.24\%), 5--10\% is near break-even (+0.87\%), while 10--20\% (-10.85\%) and $>20\%$ (-24.56\%) are negative. Promotion-type results are consistent: no-promotion +19.96\%, percentage -10.25\%, fixed-amount -63.28\%.
 
-\textbf{Diagnostic.}
-The margin inversion above 10\% discount is a structural artefact of COGS composition:
-the average product margin at list price is $\sim$20\%, so any discount beyond 10 percentage
-points fully extinguishes gross profit before accounting for fulfilment costs.
-Fixed-amount promotions are disproportionately harmful because they scale absolute
-discount independently of unit price, causing the discount-to-revenue ratio to balloon
-on low-ticket SKUs.
-The near-breakeven profile of the 5–10\% bucket (+0.87\%) indicates that this band
-absorbs necessary price sensitivity without materially impairing the P\&L, making it
-the natural guardrail ceiling.
+\textbf{Diagnostic.} The main leak is not promotion incidence itself, but deep-discount design and fixed-value mechanics that decouple markdown depth from item economics. This generates negative-contribution demand, especially when high-discount share rises in peak campaigns.
 
-\textbf{Predictive.}
-If the current promo-mix (38.66\% promotional attachment) is maintained through seasonal
-peak periods, blended gross-margin on promoted revenue will remain approximately
-$-$14.5\%.
-Deep-discount campaigns (fixed-amount or $>$20\% intensity) concentrated in Q4 will
-amplify margin drag and could reduce consolidated gross profit by an estimated
-\$150–\$200M over a two-year horizon under flat revenue assumptions.
+\textbf{Predictive.} If the deep-discount mix persists, high-volume campaign periods will keep compressing blended gross margin and increase earnings volatility, even with stable topline.
 
-\textbf{Prescriptive.}
-Implement a \textit{discount guardrail framework}: (i)~cap the default promotional
-ceiling at 10\%; (ii)~permit exceedance only for SKUs whose \textit{days\_of\_supply}
-places them in the top overstock quartile, limiting deep discounts to genuine
-inventory-clearance use cases; (iii)~deprecate fixed-amount promotion types entirely
-and replace with percentage-based mechanics subject to the 10\% cap.
-\textit{Simulation: redirecting 20\% of revenue currently in the $>$10\% discount
-cohort (\$749.6M) into the 5–10\% bucket would improve gross profit by
-\$96.1M}—a 4.4\% uplift on total gross profit.
+\textbf{Prescriptive.} Set a default markdown cap at 10\%. Permit $>10\%$ discounts only for SKUs in the top quartile of \textit{days\_of\_supply} and with non-negative projected post-discount contribution. A counterfactual re-mix shifting 20\% of net sales from $>10\%$ buckets to 5--10\% yields about +96.06 million incremental gross profit.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.95\linewidth]{figures/story2_discount_margin.png}
-\caption{\textbf{Promotion profitability diagnostics: margin destruction at the 10\%
-discount threshold.}
-The left panel plots gross margin rate by discount-intensity bucket; the right panel
-disaggregates by promotion type.
-Margin remains positive at $\leq$5\% intensity (+17.24\%) and near breakeven at 5–10\%
-(+0.87\%), but turns materially negative beyond 10\% and reaches $-$63.28\% for
-fixed-amount promotions.
-The dashed zero line demarcates value destruction; the figure provides the empirical basis
-for imposing a 10\% discount ceiling and eliminating fixed-amount promotion mechanics.}
+\includegraphics[width=0.8\linewidth]{figures/story2_discount_margin.png}
+\caption{\textbf{Profitability Response to Discount Architecture.} The left panel reports gross margin by discount bucket; the right panel reports gross margin by promotion type. The margin sign-flip beyond 10\% and the severe underperformance of fixed-value promotions directly support discount guardrails and contribution-based campaign approval.}
 \label{fig:story2_discount_margin}
 \end{figure}
 
-% ──────────────────────────────────────────────────────────────────────────────
-\subsection{Story 3: Concurrent Overstock and Return Risk Are Locking
-\$387.6M of Working Capital Across All Categories}
-% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Data Story 3: Joint Overstock and Refund Exposure Is Locking Working Capital}
 
-\textbf{Descriptive.}
-The most recent inventory snapshot reveals total on-hand inventory cost of \$387.6M
-distributed across four categories.
-\textbf{Streetwear} dominates with \$276.4M (71.3\% of total), an overstock rate of 82.65\%,
-and an average days-of-supply (DOS) of 2,032 days—more than five years of forward cover.
-\textbf{Outdoor} carries \$88.2M at 78.47\% overstock, while \textbf{Casual} (\$16.0M)
-and \textbf{GenZ} (\$7.1M) exhibit the highest overstock rates in relative terms
-(72.50\% and 84.09\%, respectively).
-Mapping return-induced refund leakage onto gross profit reveals that \textbf{Casual}
-has the highest refund-to-GP ratio (41.57\%), followed by \textbf{Streetwear} (34.89\%)
-and \textbf{Outdoor} (29.48\%).
+\textbf{Descriptive.} Integrating latest inventory snapshots with category-level returns shows concentrated capital lock-in. Streetwear has the largest inventory cost (about 276.37 million), with 82.65\% overstock and a 34.89\% refund-to-gross-profit ratio. Casual has the highest refund burden relative to gross profit (41.57\%), while GenZ has the highest overstock rate (84.09\%).
 
-\textbf{Diagnostic.}
-The coexistence of extreme overstock and non-trivial return rates creates a
-\textit{double working-capital trap}: excess inventory immobilises capital that
-cannot be recycled into higher-turn SKUs, while return refunds (\$406.7M for
-Streetwear alone) directly erode the gross profit that would otherwise fund
-markdown-driven clearance.
-The root causes are misaligned demand forecasting—evidenced by DOS exceeding
-2,000 days for Streetwear—and insufficient fit-guidance infrastructure (Q3 confirmed
-\textit{wrong\_size} as the dominant Streetwear return reason), which generates
-avoidable refund outflows.
+\textbf{Diagnostic.} The risk reflects a two-sided operating failure: excess stock depth in slow-turn nodes and weak post-purchase retention in selected categories. Categories in the matrix upper-right simultaneously consume working capital and erode realized profitability.
 
-\textbf{Predictive.}
-If overstock rates continue at the current trajectory without active liquidation,
-Streetwear's locked capital (\$276.4M) will continue to compound carrying costs
-estimated at 15–20\% annually (storage, insurance, opportunity cost).
-Simultaneously, size-driven return rates—structurally linked to the absence of
-predictive sizing recommendations—will sustain Streetwear's refund-to-GP ratio
-above 30\%, creating a self-reinforcing profitability leakage loop as each return
-further delays inventory turnover.
+\textbf{Predictive.} Without intervention, persistent overstock and refund leakage will increase cash-conversion-cycle pressure, reduce inventory agility, and crowd out reinvestment in high-velocity assortments.
 
-\textbf{Prescriptive.}
-Three coordinated interventions are recommended.
-\textit{First}, execute a margin-guarded Streetwear liquidation programme:
-target a 5\,pp reduction in overstock rate, which would free \$13.8M in working
-capital; apply markdown pricing subject to the 10\% guardrail established in
-Story~2 to avoid compounding the margin destruction documented there.
-\textit{Second}, deploy a ML-powered fit-recommendation engine at checkout for
-Streetwear and Casual: reducing Streetwear's refund amount by 10–15\% would
-save \$40.7M–\$61.0M annually.
-\textit{Third}, institute a category-level control tower with weekly KPI alerts
-on five metrics: \textit{orders\_per\_1k\_sessions}, \textit{gross\_margin\_rate},
-\textit{return\_rate}, \textit{overstock\_rate}, and \textit{refund\_to\_gp},
-enabling pre-emptive course correction before leakage compounds.
+\textbf{Prescriptive.} Prioritize Streetwear and GenZ for integrated liquidation-plus-quality programs with explicit margin floors. For Streetwear alone, a 10--15\% refund reduction protects 40.67--61.01 million in value; reducing locked inventory value by 5 percentage points releases about 13.82 million working capital.
 
-% ──────────────────────────────────────────────────────────────────────────────
-\subsection{Executive Summary}
-% ──────────────────────────────────────────────────────────────────────────────
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{figures/story3_inventory_return_risk.png}
+\caption{\textbf{Inventory--Refund Risk Matrix by Category.} Bubble size encodes latest inventory cost. Categories in the upper-right quadrant combine high overstock rates with high refund-to-gross-profit ratios, signaling concurrent liquidity lock-in and profit leakage. The plot isolates where coordinated pricing, inventory normalization, and return mitigation produce the largest near-term financial impact.}
+\label{fig:story3_inventory_return_risk}
+\end{figure}
 
-The three stories converge on a unified strategic prescription: margin optimisation
-must operate simultaneously along the \textbf{Channel $\times$ Discount $\times$
-Inventory-Turnover} axis.
-Channel reallocation (Story~1) lifts revenue quality without additional spend;
-discount guardrails (Story~2) recover \$96.1M gross profit from the existing
-promotional budget; and coordinated overstock liquidation with return-reduction
-interventions (Story~3) unlocks up to \$74.8M in combined cash flow improvement.
-Aggregate addressable upside across the three levers is estimated at
-\textbf{\$170–\$230M}, achievable within a 12-month operational horizon.
+\subsection{Executive Synthesis}
+Across all three stories, the optimization axis is not revenue at any cost, but contribution-quality growth under capital discipline along \textit{Channel $\times$ Discount Depth $\times$ Inventory Risk}. We recommend a weekly control-tower tracking five KPIs: \textit{orders\_per\_1k\_sessions}, \textit{gross\_margin\_rate}, \textit{return\_rate}, \textit{overstock\_rate}, and \textit{refund\_to\_gp}, with explicit trigger thresholds linked to budget, markdown, and replenishment decisions.
