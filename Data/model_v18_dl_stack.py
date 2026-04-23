@@ -15,10 +15,12 @@ from sklearn.model_selection import TimeSeriesSplit
 
 DATA_DIR = Path(__file__).resolve().parent
 BEST_BASE_NAME = "submission_v17_5_ratio_doy_g26.csv"
-HOLDOUT_DAYS = 180
+HOLDOUT_DAYS = 365
 SEED = 2026
 OOF_SPLITS = 5
 ANCHOR_ALPHAS = (0.10, 0.12, 0.15, 0.18, 0.22, 0.25, 0.30)
+
+MONTHLY_HIST_MEAN: dict[int, float] = {}
 
 LAGS = (1, 2, 3, 7, 14, 28)
 ROLL_WINDOWS = (3, 7, 14)
@@ -125,6 +127,13 @@ def init_promo_priors(promotions_path: Path) -> None:
     }
 
 
+def init_seasonality_priors(sales_df: pd.DataFrame) -> None:
+    global MONTHLY_HIST_MEAN
+    temp_df = sales_df.copy()
+    temp_df["month"] = temp_df["Date"].dt.month
+    MONTHLY_HIST_MEAN = temp_df.groupby("month")["Revenue"].mean().to_dict()
+
+
 def init_customer_features(customers_path: Path) -> None:
     global CUSTOMER_GROWTH
 
@@ -198,6 +207,9 @@ def calendar_features(date: pd.Timestamp) -> dict[str, float]:
     lookback_date = pd.Timestamp(date).normalize() - pd.Timedelta(days=7)
     recent_user_growth = CUSTOMER_GROWTH.get(lookback_date, 0.0)
 
+    month_val = int(date.month)
+    hist_mean = MONTHLY_HIST_MEAN.get(month_val, 0.0)
+
     return {
         "day_of_year": float(doy),
         "day_of_month": float(day_of_month),
@@ -232,6 +244,7 @@ def calendar_features(date: pd.Timestamp) -> dict[str, float]:
         "promo_mega1111_interact": float(promo_discount) * is_mega_1111,
         "promo_mega1212_interact": float(promo_discount) * is_mega_1212,
         "recent_user_growth": float(recent_user_growth),
+        "hist_month_mean_log1p": float(np.log1p(max(hist_mean, 0.0))),
     }
 
 
@@ -603,6 +616,8 @@ def main() -> None:
     best_base_file = resolve_best_base_file()
 
     sales = pd.read_csv(DATA_DIR / "sales.csv", parse_dates=["Date"]).sort_values("Date").reset_index(drop=True)
+    init_seasonality_priors(sales)
+
     rev_diff_min = float(sales["Revenue"].diff().min())
     REV_DIFF_OFFSET = max(1.0, -rev_diff_min + 1.0)
     ratio_log_min = float(np.log((sales["COGS"] / sales["Revenue"]).clip(0.72, 1.1)).min())
@@ -689,7 +704,9 @@ def main() -> None:
     dyn_feat_future = multiplier_features(future_dates, rev_future_pre)
     dyn_mul_future = dyn_model.predict(dyn_feat_future)
     dyn_mul_future = np.clip(1.0 + dyn_gamma * (dyn_mul_future - 1.0), 0.88, 1.15)
-    rev_future = np.maximum(rev_future_pre * dyn_mul_future, 0.0)
+
+    MACRO_DECAY = 4.2 / 5.1
+    rev_future = np.maximum(rev_future_pre * dyn_mul_future * MACRO_DECAY, 0.0)
 
     ratio_future_matrix = recursive_predict_ratio(ratio_models_full, sales, future_dates, f_ratio_full, rev_future)
     ratio_future = np.clip(ratio_meta.predict(ratio_future_matrix), 0.82, 0.98)
