@@ -20,9 +20,9 @@ SEED = 2026
 OOF_SPLITS = 5
 ANCHOR_ALPHAS = (0.10, 0.12, 0.15, 0.18, 0.22, 0.25, 0.30)
 
-LAGS = (1, 2, 3, 7, 14, 21, 28, 56)
-ROLL_WINDOWS = (3, 7, 14, 28)
-EMA_SPANS = (3, 7, 14)
+LAGS = (1, 2, 3, 7, 14, 28)
+ROLL_WINDOWS = (3, 7, 14)
+EMA_SPANS = (3, 7)
 
 PROMO_PRIORS: dict[str, Any] = {
     "doy_active": {},
@@ -34,6 +34,10 @@ PROMO_PRIORS: dict[str, Any] = {
     "global_stackable": 0.0,
     "global_channel_diversity": 0.0,
 }
+
+CUSTOMER_GROWTH: dict[pd.Timestamp, float] = {}
+REV_DIFF_OFFSET: float = 0.0
+RATIO_LOG_OFFSET: float = 0.0
 
 
 def resolve_best_base_file() -> Path:
@@ -121,6 +125,26 @@ def init_promo_priors(promotions_path: Path) -> None:
     }
 
 
+def init_customer_features(customers_path: Path) -> None:
+    global CUSTOMER_GROWTH
+
+    if not customers_path.exists():
+        return
+
+    cust = pd.read_csv(customers_path)
+    if "signup_date" not in cust.columns:
+        return
+
+    cust["signup_date"] = pd.to_datetime(cust["signup_date"], errors="coerce").dt.normalize()
+    cust = cust.dropna(subset=["signup_date"])
+    if cust.empty:
+        return
+
+    daily_new = cust.groupby("signup_date").size().sort_index()
+    rolling_new = daily_new.rolling(7, min_periods=1).mean()
+    CUSTOMER_GROWTH = {pd.Timestamp(k): float(v) for k, v in rolling_new.to_dict().items()}
+
+
 def _lag(values: list[float], lag: int) -> float:
     if len(values) >= lag:
         return float(values[-lag])
@@ -171,6 +195,8 @@ def calendar_features(date: pd.Timestamp) -> dict[str, float]:
     promo_discount = PROMO_PRIORS["doy_discount"].get(doy, PROMO_PRIORS["global_discount"])
     promo_stackable = PROMO_PRIORS["doy_stackable"].get(doy, PROMO_PRIORS["global_stackable"])
     promo_channel_diversity = PROMO_PRIORS["doy_channel_diversity"].get(doy, PROMO_PRIORS["global_channel_diversity"])
+    lookback_date = pd.Timestamp(date).normalize() - pd.Timedelta(days=7)
+    recent_user_growth = CUSTOMER_GROWTH.get(lookback_date, 0.0)
 
     return {
         "day_of_year": float(doy),
@@ -205,6 +231,7 @@ def calendar_features(date: pd.Timestamp) -> dict[str, float]:
         "promo_weekend_interact": float(promo_active) * is_weekend,
         "promo_mega1111_interact": float(promo_discount) * is_mega_1111,
         "promo_mega1212_interact": float(promo_discount) * is_mega_1212,
+        "recent_user_growth": float(recent_user_growth),
     }
 
 
@@ -224,7 +251,7 @@ def build_revenue_level_frame(sales: pd.DataFrame) -> tuple[pd.DataFrame, np.nda
         feats[f"rev_ema_{span}"] = shifted.ewm(span=span, adjust=False).mean()
 
     feats["rev_mom_1_7"] = feats["rev_lag_1"] / (feats["rev_lag_7"] + 1e-6)
-    feats["rev_mom_1_28"] = feats["rev_lag_1"] / (feats["rev_roll_mean_28"] + 1e-6)
+    feats["rev_mom_1_14"] = feats["rev_lag_1"] / (feats["rev_roll_mean_14"] + 1e-6)
     feats["rev_diff_1_7"] = feats["rev_lag_1"] - feats["rev_lag_7"]
 
     cal = [calendar_features(d) for d in sales["Date"]]
@@ -251,13 +278,13 @@ def build_revenue_diff_frame(sales: pd.DataFrame) -> tuple[pd.DataFrame, np.ndar
         feats[f"rev_ema_{span}"] = shifted.ewm(span=span, adjust=False).mean()
 
     feats["rev_mom_1_7"] = feats["rev_lag_1"] / (feats["rev_lag_7"] + 1e-6)
-    feats["rev_mom_1_28"] = feats["rev_lag_1"] / (feats["rev_roll_mean_28"] + 1e-6)
+    feats["rev_mom_1_14"] = feats["rev_lag_1"] / (feats["rev_roll_mean_14"] + 1e-6)
     feats["rev_diff_1_7"] = feats["rev_lag_1"] - feats["rev_lag_7"]
 
     cal = [calendar_features(d) for d in sales["Date"]]
     feats = pd.concat([feats, pd.DataFrame(cal, index=sales.index)], axis=1)
 
-    target = rev.diff()
+    target = rev.diff() + REV_DIFF_OFFSET
     combo = pd.concat([feats, target.rename("target")], axis=1).dropna().reset_index(drop=True)
     feature_cols = [c for c in combo.columns if c != "target"]
     return combo[feature_cols], combo["target"].to_numpy(dtype=float), feature_cols
@@ -282,15 +309,13 @@ def build_ratio_log_frame(sales: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray
     for lag in (1, 7, 14, 28):
         feats[f"rev_lag_{lag}"] = rev.shift(lag)
     feats["rev_roll_mean_14"] = rev.shift(1).rolling(14).mean()
-    feats["rev_roll_mean_28"] = rev.shift(1).rolling(28).mean()
-
     feats["ratio_mom_1_7"] = feats["ratio_lag_1"] / (feats["ratio_lag_7"] + 1e-6)
-    feats["ratio_mom_1_28"] = feats["ratio_lag_1"] / (feats["ratio_roll_mean_28"] + 1e-6)
+    feats["ratio_mom_1_14"] = feats["ratio_lag_1"] / (feats["ratio_roll_mean_14"] + 1e-6)
 
     cal = [calendar_features(d) for d in sales["Date"]]
     feats = pd.concat([feats, pd.DataFrame(cal, index=sales.index)], axis=1)
 
-    combo = pd.concat([feats, np.log(ratio).rename("target")], axis=1).dropna().reset_index(drop=True)
+    combo = pd.concat([feats, (np.log(ratio) + RATIO_LOG_OFFSET).rename("target")], axis=1).dropna().reset_index(drop=True)
     feature_cols = [c for c in combo.columns if c != "target"]
     return combo[feature_cols], combo["target"].to_numpy(dtype=float), feature_cols
 
@@ -298,38 +323,40 @@ def build_ratio_log_frame(sales: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray
 def build_models() -> dict[str, object]:
     return {
         "xgb": xgb.XGBRegressor(
-            n_estimators=700,
-            learning_rate=0.03,
+            n_estimators=850,
+            learning_rate=0.025,
             max_depth=6,
             min_child_weight=3,
             subsample=0.86,
             colsample_bytree=0.85,
             reg_alpha=0.08,
             reg_lambda=1.35,
-            objective="reg:absoluteerror",
+            objective="reg:tweedie",
+            tweedie_variance_power=1.35,
             random_state=SEED,
             n_jobs=1,
             verbosity=0,
         ),
         "lgb": lgb.LGBMRegressor(
-            n_estimators=900,
-            learning_rate=0.03,
+            n_estimators=1000,
+            learning_rate=0.025,
             num_leaves=63,
             min_child_samples=20,
             subsample=0.88,
             colsample_bytree=0.86,
             reg_alpha=0.05,
             reg_lambda=1.20,
-            objective="mae",
+            objective="tweedie",
+            tweedie_variance_power=1.35,
             random_state=SEED,
             n_jobs=1,
             verbose=-1,
         ),
         "cat": CatBoostRegressor(
-            iterations=900,
-            learning_rate=0.03,
+            iterations=1000,
+            learning_rate=0.025,
             depth=7,
-            loss_function="MAE",
+            loss_function="Tweedie:variance_power=1.35",
             random_seed=SEED,
             verbose=False,
         ),
@@ -348,7 +375,12 @@ def compute_sample_weights(dates: pd.Series) -> np.ndarray:
 
 def fit_model_family(X: pd.DataFrame, y: np.ndarray, dates: pd.Series | None = None) -> dict[str, object]:
     models = build_models()
-    weights = compute_sample_weights(dates) if dates is not None else None
+    weights = None
+    if dates is not None:
+        aligned_dates = pd.Series(dates).reset_index(drop=True)
+        if len(aligned_dates) != len(y):
+            aligned_dates = aligned_dates.iloc[-len(y):].reset_index(drop=True)
+        weights = compute_sample_weights(aligned_dates)
     for model in models.values():
         if weights is not None:
             model.fit(X, y, sample_weight=weights)
@@ -367,7 +399,7 @@ def row_revenue_features(date: pd.Timestamp, rev_hist: list[float], feature_cols
     for span in EMA_SPANS:
         row[f"rev_ema_{span}"] = _ema(rev_hist, span)
     row["rev_mom_1_7"] = row["rev_lag_1"] / (row["rev_lag_7"] + 1e-6)
-    row["rev_mom_1_28"] = row["rev_lag_1"] / (row["rev_roll_mean_28"] + 1e-6)
+    row["rev_mom_1_14"] = row["rev_lag_1"] / (row["rev_roll_mean_14"] + 1e-6)
     row["rev_diff_1_7"] = row["rev_lag_1"] - row["rev_lag_7"]
     row.update(calendar_features(date))
     return pd.DataFrame([[row[c] for c in feature_cols]], columns=feature_cols)
@@ -385,9 +417,8 @@ def row_ratio_features(date: pd.Timestamp, ratio_hist: list[float], rev_hist: li
     for lag in (1, 7, 14, 28):
         row[f"rev_lag_{lag}"] = _lag(rev_hist, lag)
     row["rev_roll_mean_14"] = _rmean(rev_hist, 14)
-    row["rev_roll_mean_28"] = _rmean(rev_hist, 28)
     row["ratio_mom_1_7"] = row["ratio_lag_1"] / (row["ratio_lag_7"] + 1e-6)
-    row["ratio_mom_1_28"] = row["ratio_lag_1"] / (row["ratio_roll_mean_28"] + 1e-6)
+    row["ratio_mom_1_14"] = row["ratio_lag_1"] / (row["ratio_roll_mean_14"] + 1e-6)
     row.update(calendar_features(date))
     return pd.DataFrame([[row[c] for c in feature_cols]], columns=feature_cols)
 
@@ -419,6 +450,7 @@ def recursive_predict_revenue_diff(models: dict[str, object], history: pd.DataFr
         for d in dates:
             x = row_revenue_features(pd.Timestamp(d), local_hist, feature_cols)
             diff_pred = float(model.predict(x)[0])
+            diff_pred -= REV_DIFF_OFFSET
             y = max(local_hist[-1] + diff_pred, 0.0)
             preds.append(y)
             local_hist.append(y)
@@ -438,6 +470,7 @@ def recursive_predict_ratio(models: dict[str, object], history: pd.DataFrame, da
         for i, d in enumerate(dates):
             x = row_ratio_features(pd.Timestamp(d), local_ratio, local_rev, feature_cols)
             log_ratio = float(model.predict(x)[0])
+            log_ratio -= RATIO_LOG_OFFSET
             ratio = float(np.exp(log_ratio))
             ratio = float(np.clip(ratio, 0.82, 0.98))
             preds.append(ratio)
@@ -562,11 +595,18 @@ def tune_and_fit_dynamic_multiplier(va_dates: pd.Series, rev_pred: np.ndarray, r
 
 
 def main() -> None:
+    global REV_DIFF_OFFSET, RATIO_LOG_OFFSET
+
     np.random.seed(SEED)
     init_promo_priors(DATA_DIR / "promotions.csv")
+    init_customer_features(DATA_DIR / "customers.csv")
     best_base_file = resolve_best_base_file()
 
     sales = pd.read_csv(DATA_DIR / "sales.csv", parse_dates=["Date"]).sort_values("Date").reset_index(drop=True)
+    rev_diff_min = float(sales["Revenue"].diff().min())
+    REV_DIFF_OFFSET = max(1.0, -rev_diff_min + 1.0)
+    ratio_log_min = float(np.log((sales["COGS"] / sales["Revenue"]).clip(0.72, 1.1)).min())
+    RATIO_LOG_OFFSET = max(1.0, -ratio_log_min + 1.0)
     sample = pd.read_csv(DATA_DIR / "sample_submission.csv")
     sample["Date"] = pd.to_datetime(sample["Date"])
 

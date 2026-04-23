@@ -1,0 +1,45 @@
+Traceback (most recent call last):
+  File "/workspaces/Mouis_Datathon-2026/Data/model_v18_dl_stack.py", line 721, in <module>
+    main()
+  File "/workspaces/Mouis_Datathon-2026/Data/model_v18_dl_stack.py", line 602, in main
+    lvl_oof_matrix, lvl_oof_y, lvl_oof_dates = build_oof_revenue_matrix(tr, build_revenue_level_frame, recursive_predict_revenue_level)
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/Mouis_Datathon-2026/Data/model_v18_dl_stack.py", line 496, in build_oof_revenue_matrix
+    base_models = fit_model_family(X_fold, y_fold, fold_tr["Date"])
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/Mouis_Datathon-2026/Data/model_v18_dl_stack.py", line 379, in fit_model_family
+    model.fit(X, y, sample_weight=weights)
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/core.py", line 751, in inner_f
+    return func(**kwargs)
+           ^^^^^^^^^^^^^^
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/sklearn.py", line 1343, in fit
+    train_dmatrix, evals = _wrap_evaluation_matrices(
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/sklearn.py", line 700, in _wrap_evaluation_matrices
+    train_dmatrix = create_dmatrix(
+                    ^^^^^^^^^^^^^^^
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/sklearn.py", line 1257, in _create_dmatrix
+    return QuantileDMatrix(
+           ^^^^^^^^^^^^^^^^
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/core.py", line 751, in inner_f
+    return func(**kwargs)
+           ^^^^^^^^^^^^^^
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/core.py", line 1719, in __init__
+    self._init(
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/core.py", line 1785, in _init
+    _check_call(ret)
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/core.py", line 324, in _check_call
+    raise XGBoostError(py_str(_LIB.XGBGetLastError()))
+xgboost.core.XGBoostError: [06:32:01] /__w/xgboost/xgboost/src/common/quantile.cc:95: Check failed: h_weights.size() == batch.Size() (613 vs. 585) : Invalid size of sample weight.
+Stack trace:
+  [bt] (0) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x2c1a8c) [0x7fe203cc1a8c]
+  [bt] (1) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x42970b) [0x7fe203e2970b]
+  [bt] (2) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x69b6c4) [0x7fe20409b6c4]
+  [bt] (3) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x67a91b) [0x7fe20407a91b]
+  [bt] (4) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x67e05d) [0x7fe20407e05d]
+  [bt] (5) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x5dadf1) [0x7fe203fdadf1]
+  [bt] (6) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(XGQuantileDMatrixCreateFromCallback+0x178) [0x7fe203bcf5a8]
+  [bt] (7) /lib/x86_64-linux-gnu/libffi.so.8(+0x7b16) [0x7fe22389fb16]
+  [bt] (8) /lib/x86_64-linux-gnu/libffi.so.8(+0x43ef) [0x7fe22389c3ef]
+
+

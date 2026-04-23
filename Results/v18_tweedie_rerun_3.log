@@ -1,0 +1,39 @@
+Traceback (most recent call last):
+  File "/workspaces/Mouis_Datathon-2026/Data/model_v18_dl_stack.py", line 726, in <module>
+    main()
+  File "/workspaces/Mouis_Datathon-2026/Data/model_v18_dl_stack.py", line 611, in main
+    diff_oof_matrix, diff_oof_y, _ = build_oof_revenue_matrix(tr, build_revenue_diff_frame, recursive_predict_revenue_diff)
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/Mouis_Datathon-2026/Data/model_v18_dl_stack.py", line 501, in build_oof_revenue_matrix
+    base_models = fit_model_family(X_fold, y_fold, fold_tr["Date"])
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/Mouis_Datathon-2026/Data/model_v18_dl_stack.py", line 384, in fit_model_family
+    model.fit(X, y, sample_weight=weights)
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/core.py", line 751, in inner_f
+    return func(**kwargs)
+           ^^^^^^^^^^^^^^
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/sklearn.py", line 1368, in fit
+    self._Booster = train(
+                    ^^^^^^
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/core.py", line 751, in inner_f
+    return func(**kwargs)
+           ^^^^^^^^^^^^^^
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/training.py", line 200, in train
+    bst.update(dtrain, iteration=i, fobj=obj)
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/core.py", line 2390, in update
+    _check_call(
+  File "/home/codespace/.python/current/lib/python3.12/site-packages/xgboost/core.py", line 324, in _check_call
+    raise XGBoostError(py_str(_LIB.XGBGetLastError()))
+xgboost.core.XGBoostError: [06:34:47] /__w/xgboost/xgboost/src/objective/regression_obj.cu:83: label must be non-negative for Poisson/Tweedie regression.
+Stack trace:
+  [bt] (0) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x2c1a8c) [0x7139b8ec1a8c]
+  [bt] (1) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x12899b0) [0x7139b9e899b0]
+  [bt] (2) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x128a934) [0x7139b9e8a934]
+  [bt] (3) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(+0x72d2ba) [0x7139b932d2ba]
+  [bt] (4) /home/codespace/.python/current/lib/python3.12/site-packages/xgboost/lib/libxgboost.so(XGBoosterUpdateOneIter+0x77) [0x7139b8dcc637]
+  [bt] (5) /lib/x86_64-linux-gnu/libffi.so.8(+0x7b16) [0x7139d8cb9b16]
+  [bt] (6) /lib/x86_64-linux-gnu/libffi.so.8(+0x43ef) [0x7139d8cb63ef]
+  [bt] (7) /lib/x86_64-linux-gnu/libffi.so.8(ffi_call+0x12e) [0x7139d8cb90be]
+  [bt] (8) /home/codespace/.python/current/lib/python3.12/lib-dynload/_ctypes.cpython-312-x86_64-linux-gnu.so(+0x13298) [0x7139d8cd1298]
+
+
