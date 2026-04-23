@@ -22,6 +22,10 @@ PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 pyth
 
 The latest v18 sweep files were generated from `Data/model_v18_dl_stack.py`, with the strongest observed anchor in the final micro-sweep being `submission_v18_dl_stack_anchor_a12.csv`.
 
+## Next Direction
+
+The next modeling branch to revisit is the aggressive v24 experiment set summarized in `Results/part3_experiments_aggressive.md`. That report records `submission_v24.csv` as the best observed submission, but the corresponding source script is not currently present in the workspace, so the branch is tracked here as the next candidate to reconstruct.
+
 ## Notes
 
 - The active default submission file is `Data/submission.csv`.

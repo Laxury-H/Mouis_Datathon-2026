@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -13,13 +14,111 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit
 
 DATA_DIR = Path(__file__).resolve().parent
-BEST_BASE_FILE = DATA_DIR / "submission_v17_5_ratio_doy_g26.csv"
+BEST_BASE_NAME = "submission_v17_5_ratio_doy_g26.csv"
 HOLDOUT_DAYS = 180
 SEED = 2026
+OOF_SPLITS = 5
+ANCHOR_ALPHAS = (0.30, 0.50, 0.70, 1.00)
 
 LAGS = (1, 2, 3, 7, 14, 21, 28, 56)
 ROLL_WINDOWS = (3, 7, 14, 28)
 EMA_SPANS = (3, 7, 14)
+
+PROMO_PRIORS: dict[str, Any] = {
+    "doy_active": {},
+    "doy_discount": {},
+    "doy_stackable": {},
+    "doy_channel_diversity": {},
+    "global_active": 0.0,
+    "global_discount": 0.0,
+    "global_stackable": 0.0,
+    "global_channel_diversity": 0.0,
+}
+
+
+def resolve_best_base_file() -> Path:
+    candidates = [
+        DATA_DIR / BEST_BASE_NAME,
+        DATA_DIR.parent / "Results" / "submissions" / "v17" / BEST_BASE_NAME,
+        DATA_DIR.parent / "Results" / "history" / "submissions" / "v17" / BEST_BASE_NAME,
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    raise FileNotFoundError(f"Cannot locate base submission file: {BEST_BASE_NAME}")
+
+
+def init_promo_priors(promotions_path: Path) -> None:
+    global PROMO_PRIORS
+
+    if not promotions_path.exists():
+        return
+
+    promo = pd.read_csv(promotions_path, engine="python", on_bad_lines="skip")
+    required = {"start_date", "end_date", "discount_value", "promo_type", "stackable_flag", "promo_channel"}
+    if not required.issubset(promo.columns):
+        return
+
+    promo["start_date"] = pd.to_datetime(promo["start_date"], errors="coerce")
+    promo["end_date"] = pd.to_datetime(promo["end_date"], errors="coerce")
+    promo = promo.dropna(subset=["start_date", "end_date"]).copy()
+    if promo.empty:
+        return
+
+    rows: list[dict[str, float | str | pd.Timestamp]] = []
+    for _, r in promo.iterrows():
+        start = pd.Timestamp(r["start_date"])
+        end = pd.Timestamp(r["end_date"])
+        if end < start:
+            continue
+
+        discount_value = float(r.get("discount_value", 0.0) or 0.0)
+        promo_type = str(r.get("promo_type", "")).strip().lower()
+        discount_pct = discount_value if promo_type == "percentage" else 0.0
+        channel = str(r.get("promo_channel", "unknown")).strip().lower()
+        stackable = float(r.get("stackable_flag", 0.0) or 0.0)
+
+        for d in pd.date_range(start=start, end=end, freq="D"):
+            rows.append(
+                {
+                    "date": d,
+                    "active": 1.0,
+                    "discount_pct": discount_pct,
+                    "stackable": stackable,
+                    "channel": channel,
+                }
+            )
+
+    if not rows:
+        return
+
+    daily = pd.DataFrame(rows)
+    agg = daily.groupby("date").agg(
+        active=("active", "sum"),
+        discount_pct=("discount_pct", "sum"),
+        stackable=("stackable", "mean"),
+        channel_diversity=("channel", "nunique"),
+    )
+    agg = agg.reset_index()
+    agg["doy"] = agg["date"].dt.dayofyear
+
+    doy_agg = agg.groupby("doy").agg(
+        active=("active", "mean"),
+        discount_pct=("discount_pct", "mean"),
+        stackable=("stackable", "mean"),
+        channel_diversity=("channel_diversity", "mean"),
+    )
+
+    PROMO_PRIORS = {
+        "doy_active": {int(k): float(v) for k, v in doy_agg["active"].to_dict().items()},
+        "doy_discount": {int(k): float(v) for k, v in doy_agg["discount_pct"].to_dict().items()},
+        "doy_stackable": {int(k): float(v) for k, v in doy_agg["stackable"].to_dict().items()},
+        "doy_channel_diversity": {int(k): float(v) for k, v in doy_agg["channel_diversity"].to_dict().items()},
+        "global_active": float(agg["active"].mean()),
+        "global_discount": float(agg["discount_pct"].mean()),
+        "global_stackable": float(agg["stackable"].mean()),
+        "global_channel_diversity": float(agg["channel_diversity"].mean()),
+    }
 
 
 def _lag(values: list[float], lag: int) -> float:
@@ -48,19 +147,33 @@ def _ema(values: list[float], span: int) -> float:
     return float(out)
 
 
+def _safe_expm1(x: float, low: float = -8.0, high: float = 18.0) -> float:
+    return float(np.expm1(np.clip(x, low, high)))
+
+
+def _sanitize_matrix(mat: np.ndarray, floor: float = 0.0, cap: float = 8.0e7) -> np.ndarray:
+    clean = np.nan_to_num(mat, nan=0.0, posinf=cap, neginf=floor)
+    return np.clip(clean, floor, cap)
+
+
 def calendar_features(date: pd.Timestamp) -> dict[str, float]:
     day_of_month = int(date.day)
     day_of_week = int(date.dayofweek)
     month = int(date.month)
+    doy = int(date.dayofyear)
 
     is_weekend = 1.0 if day_of_week >= 5 else 0.0
     is_mega_1111 = 1.0 if (month == 11 and day_of_month == 11) else 0.0
     is_mega_1212 = 1.0 if (month == 12 and day_of_month == 12) else 0.0
     is_payday = 1.0 if (day_of_month >= 25 or day_of_month <= 3) else 0.0
 
-    # Payday trap interactions and non-linear cross features
+    promo_active = PROMO_PRIORS["doy_active"].get(doy, PROMO_PRIORS["global_active"])
+    promo_discount = PROMO_PRIORS["doy_discount"].get(doy, PROMO_PRIORS["global_discount"])
+    promo_stackable = PROMO_PRIORS["doy_stackable"].get(doy, PROMO_PRIORS["global_stackable"])
+    promo_channel_diversity = PROMO_PRIORS["doy_channel_diversity"].get(doy, PROMO_PRIORS["global_channel_diversity"])
+
     return {
-        "day_of_year": float(date.dayofyear),
+        "day_of_year": float(doy),
         "day_of_month": float(day_of_month),
         "day_of_week": float(day_of_week),
         "month": float(month),
@@ -72,8 +185,8 @@ def calendar_features(date: pd.Timestamp) -> dict[str, float]:
         "is_mega_1111": is_mega_1111,
         "is_mega_1212": is_mega_1212,
         "is_payday": is_payday,
-        "doy_sin": float(np.sin(2.0 * np.pi * date.dayofyear / 365.25)),
-        "doy_cos": float(np.cos(2.0 * np.pi * date.dayofyear / 365.25)),
+        "doy_sin": float(np.sin(2.0 * np.pi * doy / 365.25)),
+        "doy_cos": float(np.cos(2.0 * np.pi * doy / 365.25)),
         "dow_sin": float(np.sin(2.0 * np.pi * day_of_week / 7.0)),
         "dow_cos": float(np.cos(2.0 * np.pi * day_of_week / 7.0)),
         "month_sin": float(np.sin(2.0 * np.pi * month / 12.0)),
@@ -84,6 +197,14 @@ def calendar_features(date: pd.Timestamp) -> dict[str, float]:
         "payday_x_weekend": is_payday * is_weekend,
         "payday_x_mega1111": is_payday * is_mega_1111,
         "payday_x_mega1212": is_payday * is_mega_1212,
+        "promo_active_prior": float(promo_active),
+        "promo_discount_prior": float(promo_discount),
+        "promo_stackable_prior": float(promo_stackable),
+        "promo_channel_div_prior": float(promo_channel_diversity),
+        "promo_payday_interact": float(promo_active) * is_payday,
+        "promo_weekend_interact": float(promo_active) * is_weekend,
+        "promo_mega1111_interact": float(promo_discount) * is_mega_1111,
+        "promo_mega1212_interact": float(promo_discount) * is_mega_1212,
     }
 
 
@@ -107,8 +228,7 @@ def build_revenue_level_frame(sales: pd.DataFrame) -> tuple[pd.DataFrame, np.nda
     feats["rev_diff_1_7"] = feats["rev_lag_1"] - feats["rev_lag_7"]
 
     cal = [calendar_features(d) for d in sales["Date"]]
-    cal_df = pd.DataFrame(cal, index=sales.index)
-    feats = pd.concat([feats, cal_df], axis=1)
+    feats = pd.concat([feats, pd.DataFrame(cal, index=sales.index)], axis=1)
 
     combo = pd.concat([feats, np.log1p(rev).rename("target")], axis=1).dropna().reset_index(drop=True)
     feature_cols = [c for c in combo.columns if c != "target"]
@@ -135,8 +255,7 @@ def build_revenue_diff_frame(sales: pd.DataFrame) -> tuple[pd.DataFrame, np.ndar
     feats["rev_diff_1_7"] = feats["rev_lag_1"] - feats["rev_lag_7"]
 
     cal = [calendar_features(d) for d in sales["Date"]]
-    cal_df = pd.DataFrame(cal, index=sales.index)
-    feats = pd.concat([feats, cal_df], axis=1)
+    feats = pd.concat([feats, pd.DataFrame(cal, index=sales.index)], axis=1)
 
     target = rev.diff()
     combo = pd.concat([feats, target.rename("target")], axis=1).dropna().reset_index(drop=True)
@@ -151,10 +270,12 @@ def build_ratio_log_frame(sales: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray
     feats = pd.DataFrame(index=sales.index)
     for lag in LAGS:
         feats[f"ratio_lag_{lag}"] = ratio.shift(lag)
+
     shifted = ratio.shift(1)
     for w in ROLL_WINDOWS:
         feats[f"ratio_roll_mean_{w}"] = shifted.rolling(w).mean()
         feats[f"ratio_roll_std_{w}"] = shifted.rolling(w).std()
+
     for span in EMA_SPANS:
         feats[f"ratio_ema_{span}"] = shifted.ewm(span=span, adjust=False).mean()
 
@@ -167,8 +288,7 @@ def build_ratio_log_frame(sales: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray
     feats["ratio_mom_1_28"] = feats["ratio_lag_1"] / (feats["ratio_roll_mean_28"] + 1e-6)
 
     cal = [calendar_features(d) for d in sales["Date"]]
-    cal_df = pd.DataFrame(cal, index=sales.index)
-    feats = pd.concat([feats, cal_df], axis=1)
+    feats = pd.concat([feats, pd.DataFrame(cal, index=sales.index)], axis=1)
 
     combo = pd.concat([feats, np.log(ratio).rename("target")], axis=1).dropna().reset_index(drop=True)
     feature_cols = [c for c in combo.columns if c != "target"]
@@ -268,11 +388,11 @@ def recursive_predict_revenue_level(models: dict[str, object], history: pd.DataF
         for d in dates:
             x = row_revenue_features(pd.Timestamp(d), local_hist, feature_cols)
             log_pred = float(model.predict(x)[0])
-            y = max(float(np.expm1(log_pred)), 0.0)
+            y = max(_safe_expm1(log_pred), 0.0)
             preds.append(y)
             local_hist.append(y)
         all_model_preds.append(np.asarray(preds, dtype=float))
-    return np.column_stack(all_model_preds)
+    return _sanitize_matrix(np.column_stack(all_model_preds))
 
 
 def recursive_predict_revenue_diff(models: dict[str, object], history: pd.DataFrame, dates: pd.Series, feature_cols: list[str]) -> np.ndarray:
@@ -289,7 +409,7 @@ def recursive_predict_revenue_diff(models: dict[str, object], history: pd.DataFr
             preds.append(y)
             local_hist.append(y)
         all_model_preds.append(np.asarray(preds, dtype=float))
-    return np.column_stack(all_model_preds)
+    return _sanitize_matrix(np.column_stack(all_model_preds))
 
 
 def recursive_predict_ratio(models: dict[str, object], history: pd.DataFrame, dates: pd.Series, feature_cols: list[str], revenue_pred: np.ndarray) -> np.ndarray:
@@ -302,7 +422,6 @@ def recursive_predict_ratio(models: dict[str, object], history: pd.DataFrame, da
         local_rev = list(rev_hist)
         preds = []
         for i, d in enumerate(dates):
-            local_rev[-1] = local_rev[-1]
             x = row_ratio_features(pd.Timestamp(d), local_ratio, local_rev, feature_cols)
             log_ratio = float(model.predict(x)[0])
             ratio = float(np.exp(log_ratio))
@@ -311,13 +430,63 @@ def recursive_predict_ratio(models: dict[str, object], history: pd.DataFrame, da
             local_ratio.append(ratio)
             local_rev.append(float(revenue_pred[i]))
         all_model_preds.append(np.asarray(preds, dtype=float))
-    return np.column_stack(all_model_preds)
+    return _sanitize_matrix(np.column_stack(all_model_preds), floor=0.6, cap=1.2)
 
 
 def fit_stacker(pred_matrix: np.ndarray, y_true: np.ndarray) -> LinearRegression:
+    pred_matrix = _sanitize_matrix(pred_matrix)
     meta = LinearRegression(positive=True)
     meta.fit(pred_matrix, y_true)
     return meta
+
+
+def build_oof_revenue_matrix(
+    train_df: pd.DataFrame,
+    frame_builder: Any,
+    recursive_predictor: Any,
+) -> tuple[np.ndarray, np.ndarray]:
+    tscv = TimeSeriesSplit(n_splits=OOF_SPLITS)
+    mats: list[np.ndarray] = []
+    ys: list[np.ndarray] = []
+
+    for tr_idx, va_idx in tscv.split(train_df):
+        fold_tr = train_df.iloc[tr_idx].copy().reset_index(drop=True)
+        fold_va = train_df.iloc[va_idx].copy().reset_index(drop=True)
+
+        X_fold, y_fold, f_fold = frame_builder(fold_tr)
+        base_models = fit_model_family(X_fold, y_fold)
+        pred_matrix = recursive_predictor(base_models, fold_tr, fold_va["Date"], f_fold)
+
+        mats.append(pred_matrix)
+        ys.append(fold_va["Revenue"].to_numpy(dtype=float))
+
+    return np.vstack(mats), np.concatenate(ys)
+
+
+def build_oof_ratio_matrix(train_df: pd.DataFrame, revenue_oof: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    tscv = TimeSeriesSplit(n_splits=OOF_SPLITS)
+    mats: list[np.ndarray] = []
+    ys: list[np.ndarray] = []
+    cursor = 0
+
+    for tr_idx, va_idx in tscv.split(train_df):
+        fold_tr = train_df.iloc[tr_idx].copy().reset_index(drop=True)
+        fold_va = train_df.iloc[va_idx].copy().reset_index(drop=True)
+
+        X_fold, y_fold, f_fold = build_ratio_log_frame(fold_tr)
+        base_models = fit_model_family(X_fold, y_fold)
+
+        fold_len = len(fold_va)
+        fold_rev = revenue_oof[cursor : cursor + fold_len]
+        cursor += fold_len
+
+        pred_matrix = recursive_predict_ratio(base_models, fold_tr, fold_va["Date"], f_fold, fold_rev)
+        ratio_true = (fold_va["COGS"] / fold_va["Revenue"]).to_numpy(dtype=float)
+
+        mats.append(pred_matrix)
+        ys.append(ratio_true)
+
+    return np.vstack(mats), np.concatenate(ys)
 
 
 def multiplier_features(dates: pd.Series, revenue_pred: np.ndarray) -> pd.DataFrame:
@@ -378,6 +547,8 @@ def tune_and_fit_dynamic_multiplier(va_dates: pd.Series, rev_pred: np.ndarray, r
 
 def main() -> None:
     np.random.seed(SEED)
+    init_promo_priors(DATA_DIR / "promotions.csv")
+    best_base_file = resolve_best_base_file()
 
     sales = pd.read_csv(DATA_DIR / "sales.csv", parse_dates=["Date"]).sort_values("Date").reset_index(drop=True)
     sample = pd.read_csv(DATA_DIR / "sample_submission.csv")
@@ -387,33 +558,39 @@ def main() -> None:
     tr = sales.iloc[:cut].copy().reset_index(drop=True)
     va = sales.iloc[cut:].copy().reset_index(drop=True)
 
-    # Revenue level models (log target)
+    lvl_oof_matrix, lvl_oof_y = build_oof_revenue_matrix(tr, build_revenue_level_frame, recursive_predict_revenue_level)
+    lvl_meta = fit_stacker(lvl_oof_matrix, lvl_oof_y)
+    rev_lvl_oof = np.maximum(lvl_meta.predict(lvl_oof_matrix), 0.0)
+
+    diff_oof_matrix, diff_oof_y = build_oof_revenue_matrix(tr, build_revenue_diff_frame, recursive_predict_revenue_diff)
+    diff_meta = fit_stacker(diff_oof_matrix, diff_oof_y)
+    rev_diff_oof = np.maximum(diff_meta.predict(diff_oof_matrix), 0.0)
+
+    best_beta = 0.0
+    best_oof_rev_mae = float("inf")
+    rev_oof_blend = rev_lvl_oof.copy()
+    for beta in np.arange(0.0, 1.01, 0.05):
+        blend = (1.0 - beta) * rev_lvl_oof + beta * rev_diff_oof
+        mae = mean_absolute_error(lvl_oof_y, blend)
+        if mae < best_oof_rev_mae:
+            best_oof_rev_mae = float(mae)
+            best_beta = float(beta)
+            rev_oof_blend = blend
+
+    ratio_oof_matrix, ratio_oof_true = build_oof_ratio_matrix(tr, rev_oof_blend)
+    ratio_meta = fit_stacker(ratio_oof_matrix, ratio_oof_true)
+
     X_lvl, y_lvl, f_lvl = build_revenue_level_frame(tr)
     lvl_models = fit_model_family(X_lvl, y_lvl)
     lvl_val_matrix = recursive_predict_revenue_level(lvl_models, tr, va["Date"], f_lvl)
-    lvl_meta = fit_stacker(lvl_val_matrix, va["Revenue"].to_numpy(dtype=float))
     rev_lvl_val = np.maximum(lvl_meta.predict(lvl_val_matrix), 0.0)
 
-    # Revenue difference models (diff target)
     X_diff, y_diff, f_diff = build_revenue_diff_frame(tr)
     diff_models = fit_model_family(X_diff, y_diff)
     diff_val_matrix = recursive_predict_revenue_diff(diff_models, tr, va["Date"], f_diff)
-    diff_meta = fit_stacker(diff_val_matrix, va["Revenue"].to_numpy(dtype=float))
     rev_diff_val = np.maximum(diff_meta.predict(diff_val_matrix), 0.0)
+    best_rev_val = (1.0 - best_beta) * rev_lvl_val + best_beta * rev_diff_val
 
-    # Blend level + diff outputs
-    best_beta = 0.0
-    best_rev_mae = float("inf")
-    best_rev_val = rev_lvl_val.copy()
-    for beta in np.arange(0.0, 1.01, 0.05):
-        blend = (1.0 - beta) * rev_lvl_val + beta * rev_diff_val
-        mae = mean_absolute_error(va["Revenue"], blend)
-        if mae < best_rev_mae:
-            best_rev_mae = float(mae)
-            best_beta = float(beta)
-            best_rev_val = blend
-
-    # Dynamic multiplier
     dyn_model, dyn_gamma = tune_and_fit_dynamic_multiplier(
         va["Date"],
         best_rev_val,
@@ -424,20 +601,18 @@ def main() -> None:
     dyn_mul_val = np.clip(1.0 + dyn_gamma * (dyn_mul_val - 1.0), 0.88, 1.15)
     rev_val = best_rev_val * dyn_mul_val
 
-    # Ratio models
     X_ratio, y_ratio, f_ratio = build_ratio_log_frame(tr)
     ratio_models = fit_model_family(X_ratio, y_ratio)
     ratio_val_matrix = recursive_predict_ratio(ratio_models, tr, va["Date"], f_ratio, rev_val)
-    ratio_meta = fit_stacker(ratio_val_matrix, (va["COGS"] / va["Revenue"]).to_numpy(dtype=float))
     ratio_val = np.clip(ratio_meta.predict(ratio_val_matrix), 0.82, 0.98)
 
     cogs_val = rev_val * ratio_val
     print("holdout_revenue_mae", float(mean_absolute_error(va["Revenue"], rev_val)))
     print("holdout_cogs_mae", float(mean_absolute_error(va["COGS"], cogs_val)))
+    print("oof_revenue_mae", best_oof_rev_mae)
     print("best_beta_diff_blend", best_beta)
     print("dynamic_multiplier_gamma", dyn_gamma)
 
-    # Refit base models on full data
     X_lvl_full, y_lvl_full, f_lvl_full = build_revenue_level_frame(sales)
     lvl_models_full = fit_model_family(X_lvl_full, y_lvl_full)
 
@@ -467,16 +642,15 @@ def main() -> None:
     out_raw["Revenue"] = rev_future
     out_raw["COGS"] = rev_future * ratio_future
 
-    ref = pd.read_csv(BEST_BASE_FILE)
+    ref = pd.read_csv(best_base_file)
     ref_ratio = ref["COGS"] / ref["Revenue"]
 
     outputs: dict[str, pd.DataFrame] = {
         "submission_v18_dl_stack_raw.csv": out_raw,
     }
 
-    # Anchor DL outputs to today's sweet spot
     raw_ratio = out_raw["COGS"] / out_raw["Revenue"]
-    for alpha in (0.05, 0.10, 0.15, 0.20):
+    for alpha in ANCHOR_ALPHAS:
         out = out_raw.copy()
         out["Revenue"] = (1.0 - alpha) * ref["Revenue"] + alpha * out_raw["Revenue"]
         ratio = (1.0 - alpha) * ref_ratio + alpha * raw_ratio
