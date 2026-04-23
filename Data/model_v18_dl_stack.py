@@ -18,7 +18,7 @@ BEST_BASE_NAME = "submission_v17_5_ratio_doy_g26.csv"
 HOLDOUT_DAYS = 180
 SEED = 2026
 OOF_SPLITS = 5
-ANCHOR_ALPHAS = (0.30, 0.50, 0.70, 1.00)
+ANCHOR_ALPHAS = (0.10, 0.12, 0.15, 0.18, 0.22, 0.25, 0.30)
 
 LAGS = (1, 2, 3, 7, 14, 21, 28, 56)
 ROLL_WINDOWS = (3, 7, 14, 28)
@@ -336,10 +336,24 @@ def build_models() -> dict[str, object]:
     }
 
 
-def fit_model_family(X: pd.DataFrame, y: np.ndarray) -> dict[str, object]:
+def compute_sample_weights(dates: pd.Series) -> np.ndarray:
+    weights = np.ones(len(dates), dtype=float)
+    for i, d in enumerate(pd.to_datetime(dates)):
+        if (d.month == 11 and d.day == 11) or (d.month == 12 and d.day == 12):
+            weights[i] = 3.0
+        elif d.day >= 25 or d.day <= 3:
+            weights[i] = 1.5
+    return weights
+
+
+def fit_model_family(X: pd.DataFrame, y: np.ndarray, dates: pd.Series | None = None) -> dict[str, object]:
     models = build_models()
+    weights = compute_sample_weights(dates) if dates is not None else None
     for model in models.values():
-        model.fit(X, y)
+        if weights is not None:
+            model.fit(X, y, sample_weight=weights)
+        else:
+            model.fit(X, y)
     return models
 
 
@@ -444,23 +458,25 @@ def build_oof_revenue_matrix(
     train_df: pd.DataFrame,
     frame_builder: Any,
     recursive_predictor: Any,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, pd.Series]:
     tscv = TimeSeriesSplit(n_splits=OOF_SPLITS)
     mats: list[np.ndarray] = []
     ys: list[np.ndarray] = []
+    dates: list[pd.Series] = []
 
     for tr_idx, va_idx in tscv.split(train_df):
         fold_tr = train_df.iloc[tr_idx].copy().reset_index(drop=True)
         fold_va = train_df.iloc[va_idx].copy().reset_index(drop=True)
 
         X_fold, y_fold, f_fold = frame_builder(fold_tr)
-        base_models = fit_model_family(X_fold, y_fold)
+        base_models = fit_model_family(X_fold, y_fold, fold_tr["Date"])
         pred_matrix = recursive_predictor(base_models, fold_tr, fold_va["Date"], f_fold)
 
         mats.append(pred_matrix)
         ys.append(fold_va["Revenue"].to_numpy(dtype=float))
+        dates.append(fold_va["Date"])
 
-    return np.vstack(mats), np.concatenate(ys)
+    return np.vstack(mats), np.concatenate(ys), pd.concat(dates, ignore_index=True)
 
 
 def build_oof_ratio_matrix(train_df: pd.DataFrame, revenue_oof: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -474,7 +490,7 @@ def build_oof_ratio_matrix(train_df: pd.DataFrame, revenue_oof: np.ndarray) -> t
         fold_va = train_df.iloc[va_idx].copy().reset_index(drop=True)
 
         X_fold, y_fold, f_fold = build_ratio_log_frame(fold_tr)
-        base_models = fit_model_family(X_fold, y_fold)
+        base_models = fit_model_family(X_fold, y_fold, fold_tr["Date"])
 
         fold_len = len(fold_va)
         fold_rev = revenue_oof[cursor : cursor + fold_len]
@@ -558,11 +574,11 @@ def main() -> None:
     tr = sales.iloc[:cut].copy().reset_index(drop=True)
     va = sales.iloc[cut:].copy().reset_index(drop=True)
 
-    lvl_oof_matrix, lvl_oof_y = build_oof_revenue_matrix(tr, build_revenue_level_frame, recursive_predict_revenue_level)
+    lvl_oof_matrix, lvl_oof_y, lvl_oof_dates = build_oof_revenue_matrix(tr, build_revenue_level_frame, recursive_predict_revenue_level)
     lvl_meta = fit_stacker(lvl_oof_matrix, lvl_oof_y)
     rev_lvl_oof = np.maximum(lvl_meta.predict(lvl_oof_matrix), 0.0)
 
-    diff_oof_matrix, diff_oof_y = build_oof_revenue_matrix(tr, build_revenue_diff_frame, recursive_predict_revenue_diff)
+    diff_oof_matrix, diff_oof_y, _ = build_oof_revenue_matrix(tr, build_revenue_diff_frame, recursive_predict_revenue_diff)
     diff_meta = fit_stacker(diff_oof_matrix, diff_oof_y)
     rev_diff_oof = np.maximum(diff_meta.predict(diff_oof_matrix), 0.0)
 
@@ -581,20 +597,20 @@ def main() -> None:
     ratio_meta = fit_stacker(ratio_oof_matrix, ratio_oof_true)
 
     X_lvl, y_lvl, f_lvl = build_revenue_level_frame(tr)
-    lvl_models = fit_model_family(X_lvl, y_lvl)
+    lvl_models = fit_model_family(X_lvl, y_lvl, tr["Date"])
     lvl_val_matrix = recursive_predict_revenue_level(lvl_models, tr, va["Date"], f_lvl)
     rev_lvl_val = np.maximum(lvl_meta.predict(lvl_val_matrix), 0.0)
 
     X_diff, y_diff, f_diff = build_revenue_diff_frame(tr)
-    diff_models = fit_model_family(X_diff, y_diff)
+    diff_models = fit_model_family(X_diff, y_diff, tr["Date"])
     diff_val_matrix = recursive_predict_revenue_diff(diff_models, tr, va["Date"], f_diff)
     rev_diff_val = np.maximum(diff_meta.predict(diff_val_matrix), 0.0)
     best_rev_val = (1.0 - best_beta) * rev_lvl_val + best_beta * rev_diff_val
 
     dyn_model, dyn_gamma = tune_and_fit_dynamic_multiplier(
-        va["Date"],
-        best_rev_val,
-        va["Revenue"].to_numpy(dtype=float),
+        lvl_oof_dates.reset_index(drop=True),
+        rev_oof_blend,
+        lvl_oof_y,
     )
     dyn_feat_val = multiplier_features(va["Date"], best_rev_val)
     dyn_mul_val = dyn_model.predict(dyn_feat_val)
@@ -602,7 +618,7 @@ def main() -> None:
     rev_val = best_rev_val * dyn_mul_val
 
     X_ratio, y_ratio, f_ratio = build_ratio_log_frame(tr)
-    ratio_models = fit_model_family(X_ratio, y_ratio)
+    ratio_models = fit_model_family(X_ratio, y_ratio, tr["Date"])
     ratio_val_matrix = recursive_predict_ratio(ratio_models, tr, va["Date"], f_ratio, rev_val)
     ratio_val = np.clip(ratio_meta.predict(ratio_val_matrix), 0.82, 0.98)
 
@@ -614,13 +630,13 @@ def main() -> None:
     print("dynamic_multiplier_gamma", dyn_gamma)
 
     X_lvl_full, y_lvl_full, f_lvl_full = build_revenue_level_frame(sales)
-    lvl_models_full = fit_model_family(X_lvl_full, y_lvl_full)
+    lvl_models_full = fit_model_family(X_lvl_full, y_lvl_full, sales["Date"])
 
     X_diff_full, y_diff_full, f_diff_full = build_revenue_diff_frame(sales)
-    diff_models_full = fit_model_family(X_diff_full, y_diff_full)
+    diff_models_full = fit_model_family(X_diff_full, y_diff_full, sales["Date"])
 
     X_ratio_full, y_ratio_full, f_ratio_full = build_ratio_log_frame(sales)
-    ratio_models_full = fit_model_family(X_ratio_full, y_ratio_full)
+    ratio_models_full = fit_model_family(X_ratio_full, y_ratio_full, sales["Date"])
 
     future_dates = sample["Date"]
     lvl_future_matrix = recursive_predict_revenue_level(lvl_models_full, sales, future_dates, f_lvl_full)
