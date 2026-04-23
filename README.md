@@ -61,12 +61,19 @@ Mouis_Datathon-2026/
     data.md
 
   Results/
+    history/
+      README.md
+      submissions/
+        v17/
+          README.md
     part1_results.md
     part2_neurips_stories.tex
     preview_part2.tex
     preview_part2.pdf
     neurips_2025.sty
     figures/
+    submissions/
+      v18/
 
   README.md
 ```
@@ -128,6 +135,7 @@ Expected artifact:
 
 - Keep analysis source code in dedicated notebooks/src folders.
 - Keep all submission artifacts centralized in Results/.
+- Archive old submission families in Results/history/ so the active Data/ folder stays small.
 - Freeze a submission branch before deadline.
 - Tag the exact commit used for PDF and Kaggle upload.
 
