@@ -1,28 +1,31 @@
-# Archived v18 Submission Files
+# V18 Deep Learning Stack Experiments
 
-This folder stores the v18 DL stack sweep files that were generated from `Data/model_v18_dl_stack.py` and then moved out of `Data/` to keep the active workspace clean.
+## Overview
+This experiment family (V18) utilizes a stacked ensemble architecture:
+- **Base Models**: XGBoost, LightGBM, and CatBoost (Tweedie Regression).
+- **Meta-Model**: Linear Stacking (constrained positive weights).
+- **Features**: Time-series lags, rolling windows, and dynamic multiplier tuning.
+- **Goal**: Sub-680k MAE on Public LB.
 
-## Current v18 archive
+## Results Summary
+The experiments revealed a clear "U-shaped" performance curve on the Public Leaderboard relative to the anchoring alpha (blending with the stable V17.5 G26 model).
 
-- `submission_v18_dl_stack_raw.csv`
-- `submission_v18_dl_stack_anchor_a05.csv`
-- `submission_v18_dl_stack_anchor_a08.csv`
-- `submission_v18_dl_stack_anchor_a09.csv`
-- `submission_v18_dl_stack_anchor_a10.csv`
-- `submission_v18_dl_stack_anchor_a11.csv`
-- `submission_v18_dl_stack_anchor_a12.csv`
-- `submission_v18_dl_stack_anchor_a13.csv`
-- `submission_v18_dl_stack_anchor_a14.csv`
-- `submission_v18_dl_stack_anchor_a15.csv`
-- `submission_v18_dl_stack_anchor_a16.csv`
-- `submission_v18_dl_stack_anchor_a20.csv`
+| Version | Alpha (New Model %) | Public LB MAE | Status |
+|---------|---------------------|---------------|--------|
+| `a12`   | 12%                 | 713,751       | Stable |
+| `a18`   | 18%                 | 705,030       | Improving |
+| `a22`   | 22%                 | 701,432       | Near Optimum |
+| **`a25`** | **25%**           | **700,637**   | **Best V18** |
+| `a30`   | 30%                 | 701,929       | Degrading |
+| `a50`   | 50%                 | 861,965       | Overfit |
+| `raw`   | 100%                | 981,882       | Failure |
 
-## Reproduce the sweep
+## Insights
+- **Overestimation**: The "Raw" model projected a Mean Revenue of ~5.1M, while the actual test distribution appears closer to ~4.2M. This caused the catastrophic performance of high-alpha versions.
+- **Optimum**: The sweet spot for ensembling this complex stack with the baseline is approximately **25%**.
+- **MAE vs Holdout**: Despite a very low Holdout MAE (~653k), the Public LB score was significantly higher, indicating a distribution shift between the holdout period and the test period.
 
-Run from the repository root:
-
-```bash
-PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python Data/model_v18_dl_stack.py
-```
-
-The current file set keeps the raw DL stack output plus the anchored variants around the sweet spot near `a11` and `a12`.
+## Files
+- `submission_v18_dl_stack_anchor_a25.csv`: The champion of this series.
+- `submission_v18_dl_stack_raw.csv`: The pure stack output.
+- `model_v18_dl_stack.py`: The source script (kept in Data/ for active development).
