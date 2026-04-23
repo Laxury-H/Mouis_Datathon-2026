@@ -5,6 +5,7 @@ This folder stores archived competition artifacts that are no longer part of the
 ## What is archived here
 
 - `Results/history/submissions/v17/` contains the archived v17 submission files.
+- `Results/history/submissions/v18/` contains the archived v18 sweep files.
 - `Results/submissions/v18/` contains the current v18 submission candidates.
 
 ## How to reproduce the archived versions
@@ -18,6 +19,8 @@ PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 pyth
 PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python Data/model_v17_dl_anchor.py
 PYTHONHASHSEED=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python Data/model_v18_dl_stack.py
 ```
+
+The latest v18 sweep files were generated from `Data/model_v18_dl_stack.py`, with the strongest observed anchor in the final micro-sweep being `submission_v18_dl_stack_anchor_a12.csv`.
 
 ## Notes
 

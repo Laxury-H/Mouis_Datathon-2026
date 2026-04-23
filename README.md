@@ -66,6 +66,8 @@ Mouis_Datathon-2026/
       submissions/
         v17/
           README.md
+        v18/
+          README.md
     part1_results.md
     part2_neurips_stories.tex
     preview_part2.tex
