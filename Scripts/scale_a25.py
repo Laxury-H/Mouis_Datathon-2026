@@ -3,12 +3,13 @@ import numpy as np
 from pathlib import Path
 
 DATA_DIR = Path("Data")
+SUBMISSIONS_DIR = Path("Results/submissions")
 
 def main():
     print("🚀 Thực hiện Ép Mean cho Siêu phẩm a25...")
     
     # Đọc bản blend tốt nhất lịch sử (a25)
-    sub_a25 = pd.read_csv(DATA_DIR / "submission_v18_dl_stack_anchor_a25.csv")
+    sub_a25 = pd.read_csv(SUBMISSIONS_DIR / "submission_v18_dl_stack_anchor_a25.csv")
     
     # 1. Tính Mean hiện tại
     current_mean = sub_a25['Revenue'].mean()
@@ -27,7 +28,7 @@ def main():
     sub_scaled['COGS'] = sub_scaled['COGS'] * scaling_factor
     
     # Lưu file
-    out_path = DATA_DIR / "submission_a25_scaled_445.csv"
+    out_path = SUBMISSIONS_DIR / "submission_a25_scaled_445.csv"
     sub_scaled.to_csv(out_path, index=False)
     
     print(f"✅ Đã lưu file: {out_path.name}")

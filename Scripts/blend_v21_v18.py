@@ -4,13 +4,14 @@ from pathlib import Path
 
 DATA_DIR = Path("Data")
 V21_DIR = Path("Results/history/submissions/v21")
+SUBMISSIONS_DIR = Path("Results/submissions")
 
 def main():
     print("🔀 Blending V21 Scaled + V18 a25...")
     
     # Load cả 2 bản submission
     v21 = pd.read_csv(V21_DIR / "submission_v21_scaled.csv")
-    v18 = pd.read_csv(DATA_DIR / "submission_v18_dl_stack_anchor_a25.csv")
+    v18 = pd.read_csv(SUBMISSIONS_DIR / "submission_v18_dl_stack_anchor_a25.csv")
     
     print(f"V21 Scaled Mean Revenue: {v21['Revenue'].mean():,.0f}")
     print(f"V18 a25 Mean Revenue:    {v18['Revenue'].mean():,.0f}")
@@ -27,12 +28,12 @@ def main():
         mean_rev = blended['Revenue'].mean()
         
         fname = f"submission_blend_v21_{int(alpha*100)}_v18_{int((1-alpha)*100)}.csv"
-        out_path = DATA_DIR / fname
+        out_path = SUBMISSIONS_DIR / fname
         blended.to_csv(out_path, index=False)
         
         print(f"  α={alpha:.2f} | V21:{int(alpha*100)}% + V18:{int((1-alpha)*100)}% | Mean: {mean_rev:,.0f} | -> {fname}")
     
-    print(f"\n✅ Đã tạo {len(alphas)} bản blend trong Data/. Chọn bản có Mean gần 4.45M nhất để submit!")
+    print(f"\n✅ Đã tạo {len(alphas)} bản blend trong Results/submissions/. Chọn bản có Mean gần 4.45M nhất để submit!")
 
 if __name__ == "__main__":
     main()
