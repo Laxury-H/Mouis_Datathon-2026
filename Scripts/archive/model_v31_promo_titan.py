@@ -12,9 +12,9 @@ RESULTS_DIR = Path("Results/submissions")
 V18_DIR = Path("Results/history/submissions/v18")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-N_SEEDS = 30
+N_SEEDS = 10
 N_SPLITS = 5
-N_ESTIMATORS = 2500
+N_ESTIMATORS = 1500
 LEARNING_RATE = 0.015
 MAX_DEPTH = 6
 TARGET_MEAN = 4450000
@@ -106,7 +106,8 @@ def main():
     cal_features_train = create_calendar_features(df["date"])
     df = pd.concat([df, cal_features_train], axis=1)
     
-    test_dates = pd.date_range(start="2023-01-01", end="2023-12-31")
+    sample = pd.read_csv(DATA_DIR / "sample_submission.csv")
+    test_dates = pd.to_datetime(sample["Date"])
     test_df = pd.DataFrame({"date": test_dates})
     cal_features_test = create_calendar_features(test_df["date"])
     test_df = pd.concat([test_df, cal_features_test], axis=1)
@@ -130,7 +131,7 @@ def main():
     final_rev = pred_orders * pred_aov
     
     out = pd.DataFrame({
-        "Date": test_dates.strftime("%Y-%m-%d"),
+        "Date": test_dates.dt.strftime("%Y-%m-%d"),
         "Revenue": final_rev
     })
     
