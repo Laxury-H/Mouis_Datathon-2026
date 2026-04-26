@@ -24,6 +24,9 @@ def main():
     # 2. Run V25 Components Stack (uses V18 as anchor)
     run_script(src_dir / "model_v25_components.py")
     
+    # 2.1 Run V25 Sweep to get the Base a30 blend
+    run_script(src_dir / "blend_v25_sweep.py")
+    
     # 3. Run V28 One-Shot Components
     run_script(src_dir / "model_v28_oneshot_components.py")
     
