@@ -13,7 +13,7 @@ def run_script(script_path):
 
 def main():
     print("=====================================================")
-    print("🏆 REPRODUCING V32 TIME-DECAY BLEND (665k MAE) 🏆")
+    print("🏆 REPRODUCING V33 TIME-DECAY BLEND (664k MAE) 🏆")
     print("=====================================================")
     
     src_dir = Path("src")
@@ -34,12 +34,12 @@ def main():
     run_script(src_dir / "blend_time_decay.py")
     
     print("\n🎉 All models executed successfully!")
-    print("📂 The final submission is located at: Results/submissions/final_sweeps/submission_time_decay_10_50.csv")
+    print("📂 The final submission is located at: Results/submissions/final_sweeps/submission_time_decay_10_50_syncCOGS.csv")
 
 if __name__ == "__main__":
     # Ensure working directory is the project root for paths to work correctly
     current_dir = Path.cwd()
-    if current_dir.name == "V32_TimeDecay_665k":
+    if current_dir.name == "V33_TimeDecay_664k_syncCOGS":
         os.chdir("../../..")
     elif current_dir.name == "Champions":
         os.chdir("../..")
